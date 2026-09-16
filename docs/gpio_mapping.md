@@ -1,0 +1,7 @@
+GPIO4   = DS18B20
+
+GPIO21  = SDA
+GPIO22  = SCL
+
+GPIO32  = Soil Left
+GPIO33  = Soil Right
