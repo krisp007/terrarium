@@ -1,0 +1,15 @@
+azure-core==1.41.0
+azure-cosmos==4.17.0
+azure-iot-device==2.14.0
+certifi==2026.7.22
+charset-normalizer==3.5.1
+deprecation==2.1.0
+idna==3.19
+janus==2.0.0
+packaging==26.3
+paho-mqtt==1.6.1
+PySocks==1.7.1
+requests==2.34.2
+requests-unixsocket2==1.0.1
+typing_extensions==4.16.0
+urllib3==2.8.0
