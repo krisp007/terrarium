@@ -1,0 +1,10 @@
+{
+    "wifi": {
+        "ssid": "IUVARE_LAN",
+        "password": "C33wpjsmwrnz"
+    },
+    "mqtt": {
+        "server": "192.168.24.166",
+        "client_id": "esp32_sensor_node"
+    }
+}
