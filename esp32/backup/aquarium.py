@@ -5,14 +5,20 @@ import time
 
 ow = onewire.OneWire(Pin(4))
 ds = ds18x20.DS18X20(ow)
-roms = ds.scan()
+
 
 def read_aquarium_temp():
+
+    global roms
+    roms = ds.scan()
 
     if not roms:
         return None
 
-    ds.convert_temp()
-    time.sleep_ms(750)
-
-    return ds.read_temp(roms[0])
+    try:
+        ds.convert_temp()
+        time.sleep_ms(750)
+        return ds.read_temp(roms[0])
+    except Exception as e:
+        print("Error reading aquarium temperature:", e)
+        return None

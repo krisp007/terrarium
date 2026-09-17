@@ -12,24 +12,7 @@ from aquarium import read_aquarium_temp
 from soil import read_soil_left
 from soil import read_soil_right
 
-
-# ---------------------------------
-# MQTT Heartbeat
-# ---------------------------------
-
-def send_heartbeat(client):
-
-    heartbeat = {
-        "device": "esp32_main",
-        "status": "online",
-        "uptime": time.ticks_ms() // 1000
-    }
-
-    client.publish(
-        "esp32/status",
-        json.dumps(heartbeat)
-    )
-
+from heartbeat import send_heartbeat
 
 # ---------------------------------
 # SHT30 helper
@@ -60,9 +43,9 @@ def read_sht(i2c, channel):
 
 def build_payload(i2c):
 
-    temp_top, hum_top = read_sht(i2c, 0)
+    temp_left, hum_left = read_sht(i2c, 0)
 
-    temp_left, hum_left = read_sht(i2c, 1)
+    temp_top, hum_top = read_sht(i2c, 1)
 
     temp_right, hum_right = read_sht(i2c, 2)
 
@@ -88,9 +71,21 @@ def build_payload(i2c):
 # Setup
 # ---------------------------------
 
-connect_to_wifi()
+wifi_ok = connect_to_wifi()
+
+if wifi_ok:
+    print("WiFi connected")
+else:
+    print("WiFi failed, starting without network")
 
 client = connect_mqtt()
+
+if client is None:
+    print("MQTT connection failed")
+else:
+    print("MQTT connected")
+    send_heartbeat(client)
+
 
 i2c = I2C(
     0,
@@ -101,8 +96,6 @@ i2c = I2C(
 
 print("I2C Scan:", i2c.scan())
 
-last_heartbeat = time.time()
-
 
 # ---------------------------------
 # Main Loop
@@ -112,23 +105,26 @@ while True:
 
     try:
 
-        if time.time() - last_heartbeat >= 60:
+        if client is None:
+            client = connect_mqtt()
 
-            send_heartbeat(client)
-
-            last_heartbeat = time.time()
-
-        payload = build_payload(i2c)
-
-        client.publish(
-            "esp32/sensors",
-            json.dumps(payload)
-        )
-
-        print(payload)
+        if client is not None:
+            payload = build_payload(i2c)
+            print("Payload OK")
+            print(payload)
+            if send_heartbeat(client):
+                print("Publishing MQTT")
+                client.publish(
+                    "esp32/sensors",
+                    json.dumps(payload)
+                )
+                print("MQTT Published")
+        else:
+            print("MQTT unavailable, skipping publish")
 
     except Exception as e:
 
-        print("Error:", e)
+        print("ERROR:")
+        print(e)
 
     time.sleep(120)

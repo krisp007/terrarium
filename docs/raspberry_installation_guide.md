@@ -550,6 +550,28 @@ Controlepunten:
 ```
 
 ---
+## Mosquitto Network Access
+
+Maak bestand:
+
+/etc/mosquitto/conf.d/terrarium.conf
+
+Inhoud:
+
+listener 1883
+allow_anonymous true
+
+Herstart:
+
+sudo systemctl restart mosquitto
+
+Controle:
+
+ss -tln | grep 1883
+
+Verwacht:
+
+0.0.0.0:1883
 
 # Einde Raspberry Installation Guide v1.0
 ``

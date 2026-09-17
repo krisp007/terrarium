@@ -1,10 +1,11 @@
 import time
 
+
 def read_sht30(i2c, addr=0x44):
     try:
         # Send measurement command
         i2c.writeto(addr, b'\x2C\x06')
-        time.sleep(15)  # Wait for measurement to complete
+        time.sleep_ms(20)
 
         # Read 6 bytes of data
         data = i2c.readfrom(addr, 6)

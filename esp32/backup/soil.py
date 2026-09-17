@@ -6,19 +6,22 @@ soil2 = ADC(Pin(33))
 soil1.atten(ADC.ATTN_11DB)
 soil2.atten(ADC.ATTN_11DB)
 
-print(soil1.read())
-print(soil2.read())
 
 def read_soil_left():
-    raw = soil1.read()
+    try:
+        raw = soil1.read()
+        moisture = 100 - ((raw / 4095.0) * 100)
+        return round(max(0, min(100, moisture)), 1)
+    except Exception as e:
+        print("Error reading soil left:", e)
+        return None
 
-    moisture = 100 - ((raw / 4095) * 100)
-
-    return round(moisture, 1)
 
 def read_soil_right():
-    raw = soil2.read()
-
-    moisture = 100 - ((raw / 4095) * 100)
-
-    return round(moisture, 1)
+    try:
+        raw = soil2.read()
+        moisture = 100 - ((raw / 4095.0) * 100)
+        return round(max(0, min(100, moisture)), 1)
+    except Exception as e:
+        print("Error reading soil right:", e)
+        return None
