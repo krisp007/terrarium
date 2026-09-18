@@ -109,3 +109,45 @@ class TerrariumLogic:
             "alarm": False,
             "reason": "heartbeat_ok",
         }
+
+    def evaluate_light_transition(self, time_str: str, season: str = "rainy") -> Dict[str, int]:
+        """Return the per-LED dimming profile for the 20-minute dawn/dusk transition."""
+        try:
+            hour, minute = [int(part) for part in time_str.split(":")]
+            total_minutes = hour * 60 + minute
+        except Exception:
+            return {
+                "led1": 0,
+                "led2": 0,
+                "led3": 0,
+                "led4": 0,
+            }
+
+        season_target = 80 if season == "rainy" else 100
+
+        if total_minutes < 5 * 60 + 50:
+            return {"led1": 0, "led2": 20, "led3": 0, "led4": 0}
+
+        if total_minutes < 6 * 60 + 10:
+            return {"led1": 0, "led2": 20, "led3": 20, "led4": 0}
+
+        if total_minutes < 6 * 60 + 20:
+            return {"led1": 20, "led2": 40, "led3": 40, "led4": 20}
+
+        if total_minutes < 6 * 60 + 30:
+            return {"led1": 40, "led2": 60, "led3": 60, "led4": 40}
+
+        if total_minutes < 7 * 60:
+            return {
+                "led1": season_target,
+                "led2": season_target,
+                "led3": season_target,
+                "led4": season_target,
+            }
+
+        return {
+            "led1": season_target,
+            "led2": season_target,
+            "led3": season_target,
+            "led4": season_target,
+        }

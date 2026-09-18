@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "profile_name": "costa_rica_rainforest",
+  "timezone": "Europe/Brussels",
+  "location": {
+    "country": "Costa Rica",
+    "climate_type": "lowland_rainforest",
+    "notes": "Rainforest terrarium profile with high humidity, frequent misting, and gentle airflow."
+  },
+  "schedule": {
+    "sunrise": "05:45",
+    "sunset": "18:15",
+    "day_start": "05:45",
+    "day_end": "18:15",
+    "night_start": "18:15",
+    "night_end": "05:45",
+    "auto_day_night": true
+  },
+  "seasons": {
+    "dry": {
+      "active": false,
+      "description": "Short dry spell, still humid but less misting",
+      "day": {
+        "temperature": {
+          "min_c": 24.5,
+          "max_c": 28.5,
+          "target_c": 26.8
+        },
+        "humidity": {
+          "min_percent": 72,
+          "max_percent": 88,
+          "target_percent": 80
+        },
+        "lighting": {
+          "target_percent": 85,
+          "mistmaker": true,
+          "irrigation": true
+        }
+      },
+      "night": {
+        "temperature": {
+          "min_c": 20.5,
+          "max_c": 23.5,
+          "target_c": 22.0
+        },
+        "humidity": {
+          "min_percent": 82,
+          "max_percent": 96,
+          "target_percent": 89
+        },
+        "lighting": {
+          "target_percent": 5,
+          "mistmaker": true,
+          "irrigation": false
+        }
+      }
+    },
+    "rainy": {
+      "active": true,
+      "description": "High humidity rainforest climate with frequent mist and reduced temperature spread",
+      "day": {
+        "temperature": {
+          "min_c": 23.5,
+          "max_c": 27.0,
+          "target_c": 25.2
+        },
+        "humidity": {
+          "min_percent": 82,
+          "max_percent": 98,
+          "target_percent": 90
+        },
+        "lighting": {
+          "target_percent": 75,
+          "mistmaker": true,
+          "irrigation": true
+        }
+      },
+      "night": {
+        "temperature": {
+          "min_c": 20.0,
+          "max_c": 22.8,
+          "target_c": 21.2
+        },
+        "humidity": {
+          "min_percent": 88,
+          "max_percent": 99,
+          "target_percent": 94
+        },
+        "lighting": {
+          "target_percent": 0,
+          "mistmaker": true,
+          "irrigation": true
+        }
+      }
+    }
+  },
+  "fan_control": {
+    "auto_mode": true,
+    "temp_thresholds_c": {
+      "low": 22.0,
+      "medium": 24.5,
+      "high": 27.0,
+      "max_safe": 30.0
+    },
+    "fan_levels_percent": {
+      "off": 0,
+      "low": 20,
+      "medium": 35,
+      "high": 55,
+      "max": 70
+    }
+  },
+  "lighting": {
+    "enabled": true,
+    "control_mode": "schedule_and_season",
+    "brightness_percent": {
+      "day": 75,
+      "night": 0,
+      "rainy_day": 75,
+      "dry_day": 85
+    },
+    "dawn_dusk_transition_minutes": 20,
+    "transition_steps": [
+      {
+        "step": 1,
+        "minutes_from_start": 0,
+        "leds": {
+          "led2": 20
+        },
+        "description": "Start of dawn: LED2 at 20%"
+      },
+      {
+        "step": 2,
+        "minutes_from_start": 5,
+        "leds": {
+          "led2": 20,
+          "led3": 20
+        },
+        "description": "Add LED3 to 20%"
+      },
+      {
+        "step": 3,
+        "minutes_from_start": 10,
+        "leds": {
+          "led1": 20,
+          "led2": 40,
+          "led3": 40,
+          "led4": 20
+        },
+        "description": "Increase illumination to a soft morning ramp"
+      },
+      {
+        "step": 4,
+        "minutes_from_start": 15,
+        "leds": {
+          "led1": 40,
+          "led2": 60,
+          "led3": 60,
+          "led4": 40
+        },
+        "description": "Mid transition"
+      },
+      {
+        "step": 5,
+        "minutes_from_start": 20,
+        "leds": {
+          "led1": 80,
+          "led2": 80,
+          "led3": 80,
+          "led4": 80
+        },
+        "description": "Reach final day brightness, adjusted by season"
+      }
+    ],
+    "day_brightness_by_season": {
+      "rainy": 80,
+      "dry": 100
+    }
+  },
+  "mistmaker": {
+    "enabled": true,
+    "auto_mode": true,
+    "max_runtime_minutes": 30,
+    "pause_minutes": 8
+  },
+  "irrigation": {
+    "enabled": true,
+    "auto_mode": true,
+    "cycle_minutes": 20,
+    "duration_seconds": 25
+  },
+  "safety": {
+    "leak_detected": "shutdown_mist_and_irrigation",
+    "low_reservoir": "stop_pump_and_alarm",
+    "no_heartbeat_timeout_sec": 180,
+    "temperature_too_low_c": 18.0,
+    "temperature_too_high_c": 30.5,
+    "humidity_too_low_percent": 65,
+    "humidity_too_high_percent": 99,
+    "alarm_enabled": true
+  },
+  "ui": {
+    "editable": true,
+    "fields": [
+      "profile_name",
+      "timezone",
+      "schedule",
+      "seasons",
+      "fan_control",
+      "lighting",
+      "mistmaker",
+      "irrigation",
+      "safety"
+    ],
+    "notes": "This template acts as the default configuration. The UI can modify values at runtime and save a new profile."
+  }
+}

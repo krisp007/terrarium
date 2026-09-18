@@ -58,6 +58,30 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
 
+    def test_rainforest_transition_steps(self):
+        logic = TerrariumLogic()
+
+        dawn = logic.evaluate_light_transition("05:50", season="rainy")
+        self.assertEqual(dawn["led2"], 20)
+
+        morning = logic.evaluate_light_transition("06:10", season="rainy")
+        self.assertEqual(morning["led1"], 20)
+        self.assertEqual(morning["led2"], 40)
+        self.assertEqual(morning["led3"], 40)
+        self.assertEqual(morning["led4"], 20)
+
+        full_day = logic.evaluate_light_transition("12:00", season="rainy")
+        self.assertEqual(full_day["led1"], 80)
+        self.assertEqual(full_day["led2"], 80)
+        self.assertEqual(full_day["led3"], 80)
+        self.assertEqual(full_day["led4"], 80)
+
+        dry_day = logic.evaluate_light_transition("12:00", season="dry")
+        self.assertEqual(dry_day["led1"], 100)
+        self.assertEqual(dry_day["led2"], 100)
+        self.assertEqual(dry_day["led3"], 100)
+        self.assertEqual(dry_day["led4"], 100)
+
 
 if __name__ == "__main__":
     unittest.main()
