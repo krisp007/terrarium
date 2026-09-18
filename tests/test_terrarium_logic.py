@@ -1,5 +1,7 @@
+import json
 import unittest
 
+from raspberry.mqtt_controller import TerrariumMQTTController
 from raspberry.terrarium_logic import TerrariumLogic
 
 
@@ -36,6 +38,25 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertTrue(actions["alarm"])
         self.assertEqual(actions["status"], "offline")
+
+    def test_mqtt_controller_maps_sensor_and_safety_messages(self):
+        controller = TerrariumMQTTController(broker="example.local")
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+
+        controller.handle_message("esp32/sensors", json.dumps({
+            "temperature_top": 30,
+            "humidity_top": 60,
+        }))
+
+        self.assertTrue(any(topic == "esp32/cmd/fans" for topic, _ in published))
+
+        controller.handle_message("moxa/status", json.dumps({
+            "di2": True,
+            "alarm": False,
+        }))
+
+        self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
 
 
 if __name__ == "__main__":
