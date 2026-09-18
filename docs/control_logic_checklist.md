@@ -25,6 +25,7 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] reservoirniveau blokkeert de bijbehorende output
 - [ ] RO-niveau controleren
 - [x] bij geen heartbeat: status = offline en alarm aan
+- [x] Pi-start controleert eerst alarmen en gebruikt een veilige actuatorstatus
 
 ---
 
@@ -39,6 +40,7 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] willekeurige regenbui tijdens `rainy` met configureerbare duur en cooldown
 - [x] verlichting aanpassen op zon op / zon onder
 - [x] verlichting heeft een 20-minuten dawn/dusk ramp
+- [x] na Pi-restart lichtregeling start op basis van de actuele kloktijd
 
 ---
 
@@ -54,6 +56,7 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] warmtelamp `DO06` aan bij temperatuur onder `temperature_too_low_c`
 - [x] warmtelamp uit bij normale of te hoge temperatuur
 - [x] warmtelamp uit bij lek- of veiligheidsalarm
+- [x] na Pi-restart ventilatie start met actuele regeling en minimum airflow
 
 ---
 
@@ -91,6 +94,48 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] warmtelamp bij te lage temperatuur in unit tests
 - [x] RH te laag in unit tests
 - [x] lekdetectie in unit tests
+- [x] reservoir laag in unit tests
+- [x] regenbui alleen in regenseizoen in unit tests
+- [x] regenbui geblokkeerd door lek of leeg reservoir in unit tests
+- [x] Pi-restart recovery in unit tests
+- [ ] MQTT offline live testen
+- [ ] RO-niveau live testen
+- [ ] Moxa DI-inputs live testen
+
+---
+
+## 8. Acceptatie
+
+- [ ] systeem staat stabiel
+- [ ] geen loop / duplicate commands
+- [ ] geen alarm bij normale waarden
+- [ ] fail-safe werkt bij foutcondities
+
+---
+
+## 9. Live installatiechecks
+
+- [x] Moxa bereikbaar op `192.168.24.50`
+- [x] MQTT broker bereikbaar op `192.168.24.166:1883`
+- [x] Moxa DO-feedback zichtbaar via `ioThinx_4510/read/#`
+- [x] Pi-service actief als `terrarium-logic.service`
+- [x] service enabled voor automatisch starten
+- [x] status-UI beschikbaar op `http://192.168.24.166:8080`
+- [x] status-API toont Moxa DO-feedback
+- [x] ESP32 echte sensorwaarden ontvangen
+- [ ] ESP32 echte sensorwaarden langdurig monitoren
+- [ ] Moxa DI-topics voor DI0-DI4 beschikbaar maken
+- [ ] fysieke mistmakerwerking onder toezicht testen
+- [ ] fysieke beregening onder toezicht testen
+
+---
+
+## 10. Notities
+
+Deze checklist onderscheidt unit-testvalidatie van live hardwarevalidatie. Een
+afgevinkte unit-test bewijst de regel, maar niet dat de fysieke actuator of
+Moxa-ingang correct bedraad is. Schakel water- en mistapparatuur bij live tests
+alleen onder toezicht in.
 - [x] reservoir laag in unit tests
 - [x] regenbui alleen in regenseizoen in unit tests
 - [x] regenbui geblokkeerd door lek of leeg reservoir in unit tests

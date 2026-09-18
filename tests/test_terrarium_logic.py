@@ -1,5 +1,6 @@
 import json
 import unittest
+from datetime import datetime
 
 from raspberry.mqtt_controller import TerrariumMQTTController
 from raspberry.service import MOXA_READ_TOPIC, SUBSCRIPTIONS, TerrariumMQTTService
@@ -129,6 +130,19 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertTrue(actions["alarm"])
         self.assertEqual(actions["status"], "offline")
 
+    def test_startup_state_uses_current_time_and_safe_outputs(self):
+        controller = TerrariumMQTTController(broker="example.local")
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+
+        controller.publish_current_state(datetime(2026, 9, 18, 17, 0))
+
+        topics = [topic for topic, _ in published]
+        self.assertEqual(topics, ["esp32/cmd/fans", "esp32/cmd/lights", "moxa/cmd/output"])
+        lights = published[1][1]
+        self.assertEqual(lights["brightness"], 80)
+        self.assertTrue(published[2][1]["alarm"])
+
     def test_mqtt_controller_maps_sensor_and_safety_messages(self):
         controller = TerrariumMQTTController(broker="example.local")
         published = []
@@ -142,6 +156,15 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertTrue(any(topic == "esp32/cmd/fans" for topic, _ in published))
         self.assertTrue(any(topic == "esp32/cmd/lights" for topic, _ in published))
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
+
+        moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
+        self.assertEqual(moxa_commands[-1]["reason"], "moxa_status_unknown")
+
+        controller.handle_message("moxa/status", json.dumps({
+            "di0": True,
+            "di1": True,
+            "di2": False,
+        }))
 
         controller.handle_message("esp32/sensors", json.dumps({
             "temperature_top": 25,

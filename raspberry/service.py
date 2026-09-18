@@ -8,6 +8,7 @@ import logging
 import os
 import signal
 import time
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 from .mqtt_controller import TerrariumMQTTController
@@ -85,6 +86,7 @@ class TerrariumMQTTService:
             client.subscribe(topic)
         client.subscribe(MOXA_READ_TOPIC)
         self.status.update("mqtt", {"status": "connected", "broker": f"{self.broker}:{self.port}"})
+        self.controller.publish_current_state(now=datetime.now())
         LOGGER.info("Connected to MQTT broker %s:%s", self.broker, self.port)
 
     def _on_message(self, client: Any, userdata: Any, message: Any) -> None:
@@ -92,6 +94,7 @@ class TerrariumMQTTService:
             payload = message.payload.decode("utf-8")
             if message.topic.startswith("ioThinx_4510/read/"):
                 self._update_moxa_reading(message.topic, payload)
+                self._handle_moxa_input(message.topic, payload)
                 return
             if message.topic == "esp32/sensors":
                 self.status.update("esp32", {"status": "online", "sensors": json.loads(payload), "last_seen": int(time.time())})
@@ -108,6 +111,21 @@ class TerrariumMQTTService:
         target = "inputs" if "@DI-" in channel else "outputs"
         self.status.update_nested("moxa", target, {**self.status.snapshot()["moxa"].get(target, {}), channel: value})
         self.status.update("moxa", {"status": "online", "last_seen": int(time.time())})
+
+    def _handle_moxa_input(self, topic: str, payload: str) -> None:
+        """Feed retained ioThinx DI feedback into the safety rules."""
+        channel = topic.split("/")[-2]
+        if "@DI-" not in channel:
+            return
+        try:
+            value = json.loads(payload).get("value")
+            input_number = int(channel.split("@DI-")[-1])
+            current = dict(self.controller.logic.moxa_state or {})
+            current[f"di{input_number}"] = bool(value)
+            actions = self.controller.logic.evaluate_moxa_state(current)
+            self._publish("moxa/cmd/output", actions)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            LOGGER.warning("Invalid Moxa DI message on %s", topic)
 
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")

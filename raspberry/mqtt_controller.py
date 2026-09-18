@@ -28,6 +28,24 @@ class TerrariumMQTTController:
         """
         raise NotImplementedError("The MQTT transport is implemented by the runtime host")
 
+    def publish_current_state(self, now: Optional[datetime] = None) -> None:
+        """Re-apply the present-time state after a Pi/MQTT reconnect."""
+        current = now or datetime.now()
+        fan_command = self.logic.evaluate_fan_command()
+        light_command = self.logic.evaluate_light_command(current.strftime("%H:%M"))
+        safe_outputs = {
+            "do4": "OFF",
+            "do5": "OFF",
+            "do6": "OFF",
+            "mistmaker": "OFF",
+            "beregening": "OFF",
+            "alarm": True,
+            "reason": "startup_safe_state",
+        }
+        self.publish("esp32/cmd/fans", fan_command)
+        self.publish("esp32/cmd/lights", light_command)
+        self.publish("moxa/cmd/output", safe_outputs)
+
     def handle_message(self, topic: str, payload: str) -> Dict[str, Any]:
         """Process a message from the broker and emit commands when needed."""
         try:

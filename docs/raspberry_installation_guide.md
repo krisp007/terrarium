@@ -326,6 +326,12 @@ De unit gebruikt `/home/krisp/terrarium-project/.venv/bin/python`. Pas
 `ExecStart` in `services/terrarium-logic.service` aan wanneer de projectmap
 of virtuele omgeving op een andere locatie staat.
 
+Bij iedere service-start wordt eerst een veilige actuatorstatus gepubliceerd.
+Daarna worden verlichting en ventilatie berekend op basis van de actuele tijd
+en de laatst ontvangen sensor-/Moxa-status. Een stroomonderbreking van 11:00
+tot 17:00 wordt dus behandeld als een herstart om 17:00; de Pi probeert geen
+gemiste schakelmomenten achteraf uit te voeren.
+
 De ventilatorinstellingen worden bij het starten geladen uit
 `terrarium_settings_template.json`. Een UI kan later een aangepast profiel
 opslaan en via `TERRARIUM_SETTINGS_FILE` laten gebruiken zonder de regelengine

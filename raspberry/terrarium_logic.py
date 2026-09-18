@@ -157,6 +157,17 @@ class TerrariumLogic:
                 "reason": "leak_detected",
             }
 
+        if self.moxa_state is None:
+            return {
+                "do4": "OFF",
+                "do5": "OFF",
+                "do6": self.evaluate_heater_command()["state"],
+                "mistmaker": "OFF",
+                "beregening": "OFF",
+                "alarm": True,
+                "reason": "moxa_status_unknown",
+            }
+
         humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
         soil = sum(soil_values) / len(soil_values) if soil_values else None
         mistmaker = "OFF"
