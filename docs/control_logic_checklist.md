@@ -122,6 +122,8 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] service enabled voor automatisch starten
 - [x] status-UI beschikbaar op `http://192.168.24.166:8080`
 - [x] status-API toont Moxa DO-feedback
+- [x] waarde- en commandogeschiedenis wordt lokaal bewaard
+- [x] historie-API beschikbaar op `http://192.168.24.166:8080/api/history`
 - [x] ESP32 echte sensorwaarden ontvangen
 - [ ] ESP32 echte sensorwaarden langdurig monitoren
 - [ ] Moxa DI-topics voor DI0-DI4 beschikbaar maken

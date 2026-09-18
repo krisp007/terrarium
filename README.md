@@ -111,3 +111,18 @@ http://192.168.24.166:8080
 De pagina toont de status van de Pi-service, MQTT, ESP32, Moxa DI/DO-feedback
 en de laatst verzonden commando's. De machineleesbare status is beschikbaar op
 `http://192.168.24.166:8080/api/status`.
+
+## Next.js UI
+
+De nieuwe webinterface staat in [ui](ui) en volgt de TerraControl-interface
+uit `krisp007/terra`, maar gebruikt Next.js in plaats van Vue/Vite. De UI leest
+de lokale Pi-status-API en toont systeemstatus, sensoren, Moxa-uitgangen en
+historie.
+
+Starten op een machine met Node.js 20+:
+
+```bash
+cd ui
+npm install
+npm run dev
+```

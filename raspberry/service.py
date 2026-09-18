@@ -56,6 +56,7 @@ class TerrariumMQTTService:
         """Publish controller output as a JSON MQTT message."""
         result = self.client.publish(topic, json.dumps(payload))
         self.status.update_nested("commands", topic, payload)
+        self.status.record("command", payload, topic=topic)
         if hasattr(result, "rc") and result.rc != MQTT_SUCCESS:
             LOGGER.warning("MQTT publish failed for %s (rc=%s)", topic, result.rc)
 
@@ -97,16 +98,22 @@ class TerrariumMQTTService:
                 self._handle_moxa_input(message.topic, payload)
                 return
             if message.topic == "esp32/sensors":
-                self.status.update("esp32", {"status": "online", "sensors": json.loads(payload), "last_seen": int(time.time())})
+                sensor_data = json.loads(payload)
+                self.status.update("esp32", {"status": "online", "sensors": sensor_data, "last_seen": int(time.time())})
+                self.status.record("esp32_sensors", sensor_data, topic=message.topic)
             elif message.topic == "esp32/status":
-                self.status.update("esp32", {**json.loads(payload), "last_seen": int(time.time())})
+                esp_status = json.loads(payload)
+                self.status.update("esp32", {**esp_status, "last_seen": int(time.time())})
+                self.status.record("esp32_status", esp_status, topic=message.topic)
             result = self.controller.handle_message(message.topic, payload)
             LOGGER.debug("Handled %s: %s", message.topic, result)
         except Exception:
             LOGGER.exception("Failed to handle MQTT message on %s", message.topic)
 
     def _update_moxa_reading(self, topic: str, payload: str) -> None:
-        value = json.loads(payload).get("value")
+        reading = json.loads(payload)
+        value = reading.get("value")
+        self.status.record("moxa_read", reading, topic=topic)
         channel = topic.split("/")[-2]
         target = "inputs" if "@DI-" in channel else "outputs"
         self.status.update_nested("moxa", target, {**self.status.snapshot()["moxa"].get(target, {}), channel: value})

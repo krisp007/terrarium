@@ -276,14 +276,21 @@ class TerrariumLogicTests(unittest.TestCase):
         service.stop()
 
     def test_status_store_returns_copy_of_system_status(self):
-        store = StatusStore()
-        store.update("moxa", {"status": "online"})
+        import tempfile
 
-        snapshot = store.snapshot()
+        with tempfile.TemporaryDirectory() as directory:
+            store = StatusStore(f"{directory}/history.db")
+            store.record("esp32_sensors", {"temperature_top": 24.5}, topic="esp32/sensors")
+            history = store.history()
 
-        self.assertEqual(snapshot["moxa"]["status"], "online")
-        snapshot["moxa"]["status"] = "changed"
-        self.assertEqual(store.snapshot()["moxa"]["status"], "online")
+            self.assertEqual(history[0]["source"], "esp32_sensors")
+            self.assertEqual(history[0]["values"]["temperature_top"], 24.5)
+
+            store.update("moxa", {"status": "online"})
+            snapshot = store.snapshot()
+            self.assertEqual(snapshot["moxa"]["status"], "online")
+            snapshot["moxa"]["status"] = "changed"
+            self.assertEqual(store.snapshot()["moxa"]["status"], "online")
 
 
 if __name__ == "__main__":

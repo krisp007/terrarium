@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,8 +13,17 @@ from typing import Any, Dict, Optional
 class StatusStore:
     """Thread-safe snapshot of the latest system and hardware status."""
 
-    def __init__(self) -> None:
+    def __init__(self, history_path: str = "terrarium_history.db", max_history: int = 5000) -> None:
         self._lock = threading.Lock()
+        self.history_path = history_path
+        self.max_history = max_history
+        self._database = sqlite3.connect(history_path, check_same_thread=False)
+        self._database.execute(
+            "CREATE TABLE IF NOT EXISTS history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp REAL NOT NULL, "
+            "source TEXT NOT NULL, topic TEXT, values_json TEXT NOT NULL)"
+        )
+        self._database.commit()
         self._status: Dict[str, Any] = {
             "service": {"status": "starting"},
             "mqtt": {"status": "disconnected"},
@@ -34,6 +44,42 @@ class StatusStore:
             if isinstance(target, dict):
                 target[key] = value
 
+    def record(self, source: str, values: Dict[str, Any], topic: Optional[str] = None) -> None:
+        """Persist one timestamped measurement or command."""
+        with self._lock:
+            self._database.execute(
+                "INSERT INTO history(timestamp, source, topic, values_json) VALUES (?, ?, ?, ?)",
+                (time.time(), source, topic, json.dumps(values)),
+            )
+            self._database.execute(
+                "DELETE FROM history WHERE id NOT IN ("
+                "SELECT id FROM history ORDER BY id DESC LIMIT ?)",
+                (self.max_history,),
+            )
+            self._database.commit()
+
+    def history(self, limit: int = 100, source: Optional[str] = None) -> list[Dict[str, Any]]:
+        """Return recent persisted records, newest first."""
+        safe_limit = max(1, min(int(limit), self.max_history))
+        query = "SELECT timestamp, source, topic, values_json FROM history"
+        parameters: list[Any] = []
+        if source:
+            query += " WHERE source = ?"
+            parameters.append(source)
+        query += " ORDER BY id DESC LIMIT ?"
+        parameters.append(safe_limit)
+        with self._lock:
+            rows = self._database.execute(query, parameters).fetchall()
+        return [
+            {
+                "timestamp": row[0],
+                "source": row[1],
+                "topic": row[2],
+                "values": json.loads(row[3]),
+            }
+            for row in rows
+        ]
+
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
             return json.loads(json.dumps(self._status))
@@ -52,7 +98,8 @@ small{color:#5d6b61}pre{white-space:pre-wrap;margin:0;font-size:.82rem}
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function entries(obj){return Object.entries(obj||{}).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}
 function card(title,data){let status=data.status||'';let cls=['online','connected','ok','normal'].includes(status)?'ok':(['offline','disconnected','alarm'].includes(status)?'bad':'');return `<section><h2>${esc(title)} <span class="${cls}">${esc(status)}</span></h2><dl>${entries(data)}</dl></section>`}
-async function refresh(){try{let r=await fetch('/api/status',{cache:'no-store'});let d=await r.json();document.querySelector('#cards').innerHTML=card('Pi service',d.service)+card('MQTT',d.mqtt)+card('ESP32',d.esp32)+card('Moxa',d.moxa)+card('Laatste commando\'s',d.commands);document.querySelector('#updated').textContent='Bijgewerkt: '+new Date().toLocaleTimeString();}catch(e){document.querySelector('#updated').textContent='Dashboard niet bereikbaar';}}
+function historyCard(data){return `<section><h2>Historie</h2><pre>${esc(data.slice(0,20).map(x=>new Date(x.timestamp*1000).toLocaleString()+' '+x.source+' '+JSON.stringify(x.values)).join('\\n'))}</pre></section>`}
+async function refresh(){try{let [statusResponse,historyResponse]=await Promise.all([fetch('/api/status',{cache:'no-store'}),fetch('/api/history',{cache:'no-store'})]);let d=await statusResponse.json();let h=await historyResponse.json();document.querySelector('#cards').innerHTML=card('Pi service',d.service)+card('MQTT',d.mqtt)+card('ESP32',d.esp32)+card('Moxa',d.moxa)+card('Laatste commando\'s',d.commands)+historyCard(h);document.querySelector('#updated').textContent='Bijgewerkt: '+new Date().toLocaleTimeString();}catch(e){document.querySelector('#updated').textContent='Dashboard niet bereikbaar';}}
 refresh();setInterval(refresh,3000);
 </script></body></html>"""
 
@@ -61,7 +108,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
     store: StatusStore
 
     def do_GET(self) -> None:
-        if self.path == "/api/status":
+        if self.path.startswith("/api/history"):
+            body = json.dumps(self.store.history()).encode("utf-8")
+            content_type = "application/json"
+        elif self.path == "/api/status":
             body = json.dumps(self.store.snapshot()).encode("utf-8")
             content_type = "application/json"
         elif self.path == "/":
