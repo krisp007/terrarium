@@ -12,8 +12,12 @@ Dit project beschrijft een geautomatiseerd terrarium / paludarium met:
 
 ## Doel
 
-Het doel is een stabiel en lokaal autonoom systeem dat:
+Het doel is een stabiel en lokaal autonoom systeem dat een Costa Rica-achtige terrariumomgeving nabootst, met een natuurlijke klimaatsimulatie van:
 
+- dag en nacht cyclus
+- regenseizoen en droog seizoen
+- hoge luchtvochtigheid in de regenseizoensfases
+- warmere, drogere periodes tijdens daglicht en droge fase
 - temperatuur en luchtvochtigheid bewaakt
 - aquariumtemperatuur volgt
 - bodemvocht controleert
@@ -58,6 +62,7 @@ Het doel is een stabiel en lokaal autonoom systeem dat:
 - [docs/gpio_mapping.md](docs/gpio_mapping.md) — ESP32 GPIO- en bus mapping
 - [docs/hardware_wiring.md](docs/hardware_wiring.md) — bekabelingsschema en hardwareopzet
 - [docs/hardware_bouwplan_per_kabel_en_pin.md](docs/hardware_bouwplan_per_kabel_en_pin.md) — praktische bouwgids per kabel en pin
+- [docs/control_logic_checklist.md](docs/control_logic_checklist.md) — checklist voor Pi-control logic en klimaatregels
 - [docs/mqtt_topics.md](docs/mqtt_topics.md) — MQTT contract en payloads
 - [docs/praktische_bouwgids.md](docs/praktische_bouwgids.md) — praktijkgerichte bouw- en testgids
 - [docs/raspberry_installation_guide.md](docs/raspberry_installation_guide.md) — Raspberry installatie en service setup
@@ -80,3 +85,17 @@ mosquitto_sub -h 192.168.24.166 -t "#" -v
 ## Baseline-opmerking
 
 Deze documentatie is een werkdocument voor de eerste bouw- en testfase. Houd de GPIO-toewijzing, MQTT-topics, Moxa-IO mapping en netwerkconfiguratie altijd synchroon met de werkelijke hardware.
+
+## Settings template
+
+Het project bevat een default configuratiebestand voor de klimaatsimulatie en latere UI-editing:
+
+- [terrarium_settings_template.json](terrarium_settings_template.json)
+
+Deze template bevat:
+- dag-/nachtcyclus
+- min/max temperatuur en luchtvochtigheid
+- zon op / zon onder
+- seizoeninstellingen (droog / nat)
+- veiligheidsregels en actuators
+- waarden die later door een UI kunnen worden aangepast zonder de logica te wijzigen

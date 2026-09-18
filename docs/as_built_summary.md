@@ -2,7 +2,14 @@
 
 ## 1. Systeemdoel
 
-Het terrariumproject is opgebouwd als een lokaal geautomatiseerd klimaatsysteem met:
+Het terrariumproject is opgebouwd als een lokaal geautomatiseerd klimaatsysteem dat een Costa Rica-achtig microklimaat nabootst, met:
+
+- dag/nacht simulatie
+- regenseizoen en droog seizoen
+- verhoogde luchtvochtigheid in natte periodes
+- warmere, drogere condities tijdens de dag en in droog seizoen
+
+Het systeem bevat:
 
 - Raspberry Pi 5 als centrale controller
 - ESP32 als lokale sensor- en actuatorcontroller

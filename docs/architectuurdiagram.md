@@ -10,6 +10,8 @@ Status: Current Hardware Baseline
 
 Deze documentatie beschrijft de huidige hardware-architectuur van het terrariumproject zoals deze in de praktijk is opgebouwd.
 
+Het systeem is ontworpen als een terrarium op basis van een Costa Rica-achtig klimaat: het simuleert dag/nacht, regenseizoen en droog seizoen, met een natuurlijke variatie in vochtigheid, temperatuur en lichtcycli.
+
 Het systeem bevat:
 
 - Raspberry Pi 5 als centrale controller en MQTT broker
@@ -94,6 +96,7 @@ Taken:
 - heartbeat publiceren
 - ventilatoren bedienen via PCA9685
 - dimmen van LED-groepen via DFR0971
+- lokale dag-/nachtcyclus ondersteunen in combinatie met de Pi-logica
 
 Publiceert:
 
@@ -120,6 +123,7 @@ Taken:
 - RO-niveau bewaken
 - LED-voeding en watercirculatie regelen
 - alarmstatus via MQTT publiceren
+- fail-safe beveiliging bij verlies van klimaatcontrole of vochtigheidsscenario's
 
 Publiceert:
 
