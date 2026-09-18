@@ -13,6 +13,42 @@ from soil import read_soil_left
 from soil import read_soil_right
 
 from heartbeat import send_heartbeat
+from pca9685 import PCA9685
+from vents import VentController
+
+
+vent_controller = None
+fan_outputs = {"fan1": 0, "fan6": 0}
+
+
+def handle_fan_command(topic, message):
+    """Apply Pi fan commands: CH0=fan1 and CH5=fan6."""
+    global vent_controller
+    try:
+        command = json.loads(message)
+        channels = command.get("channels", {})
+        fan1 = channels.get("fan1", 0)
+        fan6 = channels.get("fan6", 0)
+        if fan1 > 0 and fan_outputs["fan1"] == 0:
+            vent_controller.set_fan(0, 100)
+            time.sleep_ms(2000)
+        if fan6 > 0 and fan_outputs["fan6"] == 0:
+            vent_controller.set_fan(5, 100)
+            time.sleep_ms(2000)
+        vent_controller.set_fan(0, fan1)
+        vent_controller.set_fan(5, fan6)
+        fan_outputs["fan1"] = fan1
+        fan_outputs["fan6"] = fan6
+        level = command.get("level", 0)
+        for channel in range(1, 5):
+            vent_controller.set_fan(channel, level)
+        print("Fan command applied", command)
+    except Exception as error:
+        print("Fan command error", error)
+
+def configure_mqtt_client(mqtt_client):
+    mqtt_client.set_callback(handle_fan_command)
+    mqtt_client.subscribe("esp32/cmd/fans")
 
 # ---------------------------------
 # SHT30 helper
@@ -84,6 +120,7 @@ if client is None:
     print("MQTT connection failed")
 else:
     print("MQTT connected")
+    configure_mqtt_client(client)
     send_heartbeat(client)
 
 
@@ -93,6 +130,10 @@ i2c = I2C(
     sda=Pin(21),
     freq=10000
 )
+
+pca = PCA9685(i2c)
+pca.freq(500)
+vent_controller = VentController(pca)
 
 print("I2C Scan:", i2c.scan())
 
@@ -107,8 +148,11 @@ while True:
 
         if client is None:
             client = connect_mqtt()
+            if client is not None:
+                configure_mqtt_client(client)
 
         if client is not None:
+            client.check_msg()
             payload = build_payload(i2c)
             print("Payload OK")
             print(payload)
@@ -127,4 +171,10 @@ while True:
         print("ERROR:")
         print(e)
 
-    time.sleep(120)
+    for _ in range(120):
+        if client is not None:
+            try:
+                client.check_msg()
+            except Exception as error:
+                print("MQTT command check error", error)
+        time.sleep(1)

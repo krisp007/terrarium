@@ -310,6 +310,18 @@ Verwachte logregel:
 Connected to MQTT broker 192.168.24.166:1883
 ```
 
+## 16. Status UI
+
+De service biedt lokaal een statusdashboard aan op:
+
+```text
+http://192.168.24.166:8080
+```
+
+Het dashboard toont de Pi-service, MQTT-verbinding, ESP32-status en sensoren,
+Moxa DI/DO-feedback en de laatst verzonden commando's. De JSON-status is ook
+beschikbaar via `/api/status` voor een latere UI-uitbreiding.
+
 De unit gebruikt `/home/krisp/terrarium-project/.venv/bin/python`. Pas
 `ExecStart` in `services/terrarium-logic.service` aan wanneer de projectmap
 of virtuele omgeving op een andere locatie staat.

@@ -8,6 +8,7 @@ control commands.
 from __future__ import annotations
 
 import random
+import time
 from typing import Callable, Dict, Optional
 
 
@@ -55,6 +56,8 @@ class TerrariumLogic:
         self.rainstorm_until = 0.0
         self.rainstorm_cooldown_until = 0.0
         self.random_source: Callable[[], float] = random.random
+        self.minimum_airflow_percent = 25
+        self.minimum_airflow_interval_seconds = 60
         if settings is not None:
             self.update_settings(settings)
 
@@ -262,10 +265,13 @@ class TerrariumLogic:
 
         return {"state": state, "do6": state, "reason": reason}
 
-    def evaluate_fan_command(self) -> Dict[str, object]:
+    def evaluate_fan_command(self, now: Optional[float] = None) -> Dict[str, object]:
         """Compute a safe fan level from the current average temperature."""
+        current_time = time.time() if now is None else now
+        active_minimum_fan = 1 if int(current_time / self.minimum_airflow_interval_seconds) % 2 == 0 else 6
         if not self.sensor_state:
-            return {"mode": "auto", "level": 0}
+            level = 0
+            return self._fan_command(level, active_minimum_fan)
 
         temps = [
             float(value)
@@ -274,7 +280,7 @@ class TerrariumLogic:
         ]
 
         if not temps:
-            return {"mode": "auto", "level": 0}
+            return self._fan_command(0, active_minimum_fan)
 
         average_temp = sum(temps) / len(temps)
 
@@ -289,7 +295,25 @@ class TerrariumLogic:
         else:
             level = self.fan_levels["max"]
 
-        return {"mode": "auto", "level": int(level)}
+        return self._fan_command(int(level), active_minimum_fan)
+
+    def _fan_command(self, level: int, active_minimum_fan: int) -> Dict[str, object]:
+        """Keep one of the two end fans moving to prevent stagnant air."""
+        fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
+        fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
+        return {
+            "mode": "auto",
+            "level": int(level),
+            "channels": {
+                "fan1": fan1,
+                "fan6": fan6,
+            },
+            "minimum_airflow": {
+                "enabled": True,
+                "active_fan": active_minimum_fan,
+                "percent": self.minimum_airflow_percent,
+            },
+        }
 
     def update_heartbeat(self, timestamp: int) -> None:
         """Record the last successful ESP32 heartbeat timestamp."""

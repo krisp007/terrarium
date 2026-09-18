@@ -102,6 +102,13 @@
   },
   "fan_control": {
     "auto_mode": true,
+    "minimum_airflow": {
+      "enabled": true,
+      "fans": [1, 6],
+      "percent": 25,
+      "alternate_seconds": 60,
+      "purpose": "prevent_stagnant_air_and_mold"
+    },
     "temp_thresholds_c": {
       "low": 22.0,
       "medium": 24.5,

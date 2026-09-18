@@ -99,3 +99,15 @@ Deze template bevat:
 - seizoeninstellingen (droog / nat)
 - veiligheidsregels en actuators
 - waarden die later door een UI kunnen worden aangepast zonder de logica te wijzigen
+
+## Status UI
+
+De lokale statuspagina draait op de Raspberry Pi:
+
+```text
+http://192.168.24.166:8080
+```
+
+De pagina toont de status van de Pi-service, MQTT, ESP32, Moxa DI/DO-feedback
+en de laatst verzonden commando's. De machineleesbare status is beschikbaar op
+`http://192.168.24.166:8080/api/status`.

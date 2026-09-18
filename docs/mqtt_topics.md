@@ -92,6 +92,8 @@ Gebruik:
 
 - status voor ventilatiecontrole
 - PWM-niveau of modusoverschrijving
+- `channels.fan1` en `channels.fan6` houden permanent minimale luchtstroom in stand
+- fan 1 en fan 6 wisselen standaard elke 60 seconden op 25%
 
 ---
 

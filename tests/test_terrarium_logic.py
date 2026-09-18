@@ -2,7 +2,8 @@ import json
 import unittest
 
 from raspberry.mqtt_controller import TerrariumMQTTController
-from raspberry.service import SUBSCRIPTIONS, TerrariumMQTTService
+from raspberry.service import MOXA_READ_TOPIC, SUBSCRIPTIONS, TerrariumMQTTService
+from raspberry.status_dashboard import StatusStore
 from raspberry.terrarium_logic import TerrariumLogic
 
 
@@ -26,10 +27,16 @@ class TerrariumLogicTests(unittest.TestCase):
             "temperature_right": 23.0,
         })
 
-        command = logic.evaluate_fan_command()
+        command = logic.evaluate_fan_command(now=0)
 
         self.assertGreater(command["level"], 0)
         self.assertEqual(command["mode"], "auto")
+        self.assertEqual(command["channels"]["fan1"], 25)
+        self.assertEqual(command["channels"]["fan6"], 0)
+
+        alternate = logic.evaluate_fan_command(now=60)
+        self.assertEqual(alternate["channels"]["fan1"], 0)
+        self.assertEqual(alternate["channels"]["fan6"], 25)
 
     def test_heater_turns_on_below_minimum_temperature(self):
         logic = TerrariumLogic({"safety": {"temperature_too_low_c": 18.0}})
@@ -225,10 +232,14 @@ class TerrariumLogicTests(unittest.TestCase):
                 return None
 
         client = FakeClient()
-        service = TerrariumMQTTService("example.local", client_factory=lambda: client)
+        service = TerrariumMQTTService(
+            "example.local",
+            status_port=0,
+            client_factory=lambda: client,
+        )
         service.run()
 
-        self.assertEqual(client.subscribed, list(SUBSCRIPTIONS))
+        self.assertEqual(client.subscribed, [*SUBSCRIPTIONS, MOXA_READ_TOPIC])
         client.on_message(client, None, type("Message", (), {
             "topic": "esp32/sensors",
             "payload": b'{"temperature_top": 30}',
@@ -239,6 +250,17 @@ class TerrariumLogicTests(unittest.TestCase):
             ("ioThinx_4510/write/DO@DO-05/doStatus", '{"value": 1}'),
             client.published,
         )
+        service.stop()
+
+    def test_status_store_returns_copy_of_system_status(self):
+        store = StatusStore()
+        store.update("moxa", {"status": "online"})
+
+        snapshot = store.snapshot()
+
+        self.assertEqual(snapshot["moxa"]["status"], "online")
+        snapshot["moxa"]["status"] = "changed"
+        self.assertEqual(store.snapshot()["moxa"]["status"], "online")
 
 
 if __name__ == "__main__":

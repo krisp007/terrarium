@@ -6,10 +6,10 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 
 ## 1. Basisstatus
 
-- [ ] ESP32 heartbeat is binnen timeout
+- [x] ESP32 heartbeat is binnen timeout
 - [x] MQTT broker is bereikbaar op `192.168.24.166`
 - [x] `esp32/sensors` wordt ontvangen
-- [ ] `esp32/status` wordt ontvangen
+- [x] `esp32/status` wordt ontvangen
 - [ ] `moxa/status` wordt ontvangen
 - [x] Pi-regelengine draait als systemd-service
 - [x] service start automatisch bij boot
@@ -49,6 +49,7 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] fanwaarden kunnen via `update_settings()` worden aangepast voor latere UI-integratie
 - [x] fan OFF bij te lage temp
 - [x] fan max bij hoge temp
+- [x] minimum airflow tegen schimmel: fan 1 en fan 6 afwisselend op 25%
 - [x] safety override heeft prioriteit
 - [x] warmtelamp `DO06` aan bij temperatuur onder `temperature_too_low_c`
 - [x] warmtelamp uit bij normale of te hoge temperatuur
@@ -115,6 +116,9 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] Moxa DO-feedback zichtbaar via `ioThinx_4510/read/#`
 - [x] Pi-service actief als `terrarium-logic.service`
 - [x] service enabled voor automatisch starten
+- [x] status-UI beschikbaar op `http://192.168.24.166:8080`
+- [x] status-API toont Moxa DO-feedback
+- [x] ESP32 echte sensorwaarden ontvangen
 - [ ] ESP32 echte sensorwaarden langdurig monitoren
 - [ ] Moxa DI-topics voor DI0-DI4 beschikbaar maken
 - [ ] fysieke mistmakerwerking onder toezicht testen
