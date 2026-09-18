@@ -34,6 +34,8 @@ class TerrariumMQTTController:
             self.logic.update_sensor_state(data)
             command = self.logic.evaluate_fan_command()
             self.publish("esp32/cmd/fans", command)
+            moxa_command = self.logic.evaluate_moxa_outputs()
+            self.publish("moxa/cmd/output", moxa_command)
             return command
 
         if topic == "esp32/status":

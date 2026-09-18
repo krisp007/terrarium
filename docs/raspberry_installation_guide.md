@@ -279,6 +279,41 @@ pip install azure-cosmos
 
 Controle:
 
+---
+
+# 15. Terrarium rule-engine service
+
+De Pi-regelengine draait als een systemd-service en verwerkt:
+
+- `esp32/sensors`
+- `esp32/status`
+- `moxa/status`
+
+Installeer de unit vanuit de projectmap:
+
+```bash
+sudo install -m 0644 services/terrarium-logic.service /etc/systemd/system/terrarium-logic.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now terrarium-logic.service
+```
+
+Controleer daarna de verbinding met MQTT:
+
+```bash
+sudo systemctl status terrarium-logic.service
+journalctl -u terrarium-logic.service -f
+```
+
+Verwachte logregel:
+
+```text
+Connected to MQTT broker 192.168.24.166:1883
+```
+
+De unit gebruikt `/home/krisp/terrarium-project/.venv/bin/python`. Pas
+`ExecStart` in `services/terrarium-logic.service` aan wanneer de projectmap
+of virtuele omgeving op een andere locatie staat.
+
 ```bash
 pip list | grep azure
 ```

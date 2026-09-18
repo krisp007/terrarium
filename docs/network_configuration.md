@@ -23,7 +23,7 @@ Dit document beschrijft de vaste netwerkconfiguratie van de terrarium-installati
 
 ### Moxa ioThinx 4510
 
-- IP: `192.168.24.170`
+- IP: `192.168.24.50`
 - MQTT-broker: `192.168.24.166`
 
 ---
@@ -124,6 +124,10 @@ Verwacht:
 
 ```bash
 ping 192.168.24.166
+```
+
+```bash
+ping 192.168.24.50
 ```
 
 ```bash

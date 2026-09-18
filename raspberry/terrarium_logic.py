@@ -15,8 +15,13 @@ class TerrariumLogic:
 
     def __init__(self) -> None:
         self.sensor_state: Dict[str, float] = {}
+        self.moxa_state: Optional[Dict[str, object]] = None
         self.last_heartbeat: Optional[int] = None
         self.heartbeat_timeout_seconds = 180
+        self.mistmaker_on_humidity = 82.0
+        self.mistmaker_off_humidity = 90.0
+        self.irrigation_on_soil = 35.0
+        self.irrigation_off_soil = 55.0
 
     def update_sensor_state(self, payload: Dict[str, object]) -> Dict[str, object]:
         """Store the latest sensor measurements."""
@@ -27,19 +32,86 @@ class TerrariumLogic:
 
     def evaluate_moxa_state(self, payload: Dict[str, object]) -> Dict[str, object]:
         """Apply safety rules from the Moxa digital inputs."""
+        self.moxa_state = dict(payload)
         if payload.get("di2") is True or payload.get("alarm") is True:
             return {
+                "mistmaker": "OFF",
+                "beregening": "OFF",
+                "do4": "OFF",
+                "do5": "OFF",
+                "alarm": True,
+                "reason": "leak_detected",
+            }
+
+        mistmaker = "OFF" if payload.get("di0") is False else "ON"
+        irrigation = "OFF" if payload.get("di1") is False else "ON"
+        reservoir_alarm = mistmaker == "OFF" or irrigation == "OFF"
+
+        return {
+            "mistmaker": mistmaker,
+            "beregening": irrigation,
+            "do4": irrigation,
+            "do5": mistmaker,
+            "alarm": reservoir_alarm,
+            "reason": "reservoir_low" if reservoir_alarm else "normal",
+        }
+
+    def evaluate_moxa_outputs(self) -> Dict[str, object]:
+        """Translate the latest sensors to Moxa DO4/DO5 commands."""
+        humidity_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("humidity_")
+        ]
+        soil_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("soil_")
+        ]
+
+        if self.moxa_state is not None and (
+            self.moxa_state.get("di2") is True or self.moxa_state.get("alarm") is True
+        ):
+            return {
+                "do4": "OFF",
+                "do5": "OFF",
                 "mistmaker": "OFF",
                 "beregening": "OFF",
                 "alarm": True,
                 "reason": "leak_detected",
             }
 
+        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
+        soil = sum(soil_values) / len(soil_values) if soil_values else None
+        mistmaker = "OFF"
+        irrigation = "OFF"
+
+        if humidity is not None:
+            mistmaker = "ON" if humidity < self.mistmaker_on_humidity else "OFF"
+            if humidity >= self.mistmaker_off_humidity:
+                mistmaker = "OFF"
+
+        if soil is not None:
+            irrigation = "ON" if soil < self.irrigation_on_soil else "OFF"
+            if soil >= self.irrigation_off_soil:
+                irrigation = "OFF"
+
+        if self.moxa_state is not None:
+            if self.moxa_state.get("di0") is False:
+                mistmaker = "OFF"
+            if self.moxa_state.get("di1") is False:
+                irrigation = "OFF"
+
+        reservoir_alarm = (
+            self.moxa_state is not None
+            and (self.moxa_state.get("di0") is False or self.moxa_state.get("di1") is False)
+        )
+
         return {
-            "mistmaker": "ON",
-            "beregening": "ON",
-            "alarm": False,
-            "reason": "normal",
+            "do4": irrigation,
+            "do5": mistmaker,
+            "mistmaker": mistmaker,
+            "beregening": irrigation,
+            "alarm": reservoir_alarm,
+            "reason": "reservoir_low" if reservoir_alarm else "sensor_control",
         }
 
     def evaluate_fan_command(self) -> Dict[str, object]:

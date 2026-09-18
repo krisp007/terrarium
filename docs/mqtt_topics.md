@@ -134,7 +134,40 @@ Gebruik:
 
 ---
 
-## 8. Convention notes
+## 8. Sensorregeling naar Moxa
+
+Bij elk bericht op `esp32/sensors` stuurt de Pi naast het fancommando ook een
+commando naar `moxa/cmd/output`:
+
+```json
+{
+  "do4": "OFF",
+  "do5": "ON",
+  "mistmaker": "ON",
+  "beregening": "OFF",
+  "alarm": false,
+  "reason": "sensor_control"
+}
+```
+
+De as-built mapping is:
+
+- `DO4` = beregening
+- `DO5` = mistmaker
+
+De standaard regenwoudgrenzen zijn:
+
+- gemiddelde RH onder 82%: `DO5 ON`
+- gemiddelde RH vanaf 90%: `DO5 OFF`
+- gemiddelde bodemvochtigheid onder 35%: `DO4 ON`
+- gemiddelde bodemvochtigheid vanaf 55%: `DO4 OFF`
+
+Een lek (`DI2`) of laag reservoir (`DI0` / `DI1`) heeft altijd prioriteit en
+blokkeert de bijbehorende uitgang.
+
+---
+
+## 9. Convention notes
 
 - JSON is de standaard payloadvorm
 - topicnamen zijn lowercase en logisch benoemd
@@ -143,7 +176,7 @@ Gebruik:
 
 ---
 
-## 9. Acceptatiechecks
+## 10. Acceptatiechecks
 
 Controleer in de broker met:
 

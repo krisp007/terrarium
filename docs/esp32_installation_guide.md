@@ -29,7 +29,7 @@ De ESP32 krijgt in de huidige opzet een vaste IP binnen het lokale netwerk, zoda
 |--------|-----|
 | Raspberry Pi 5 | 192.168.24.166 |
 | ESP32 Klimaatcontroller | 192.168.24.141 |
-| Moxa ioThinx 4510 | 192.168.24.170 |
+| Moxa ioThinx 4510 | 192.168.24.50 |
 
 Gebruik deze waarden in de WiFi- en MQTT-configuratie.
 

@@ -4,6 +4,9 @@
 
 De Moxa is de veiligheids- en schakelcontroller. Zij bewaakt de kritische status van reservoirniveaus, lekdetectie, RO-niveau en de voedingen van verlichting, warmte en irrigatie.
 
+Netwerkadres: `192.168.24.50`
+MQTT-broker: `192.168.24.166:1883`
+
 ---
 
 ## 1. Digitale ingangen
@@ -89,5 +92,29 @@ Commando's worden verzonden naar:
 ```text
 moxa/cmd/output
 ```
+
+De Pi-runtime vertaalt een logisch commando zoals `{"do5":"ON"}` daarnaast
+naar het ioThinx MQTT-write-topic:
+
+```text
+ioThinx_4510/write/DO@DO-05/doStatus
+```
+
+met payload:
+
+```json
+{"value": 1}
+```
+
+De Moxa-feedback komt binnen via bijvoorbeeld:
+
+```text
+ioThinx_4510/read/DO@DO-05/doStatus
+```
+
+met `{"value":1}` voor aan en `{"value":0}` voor uit. Als de feedback na een
+write `0` blijft, controleer dan in de Moxa MQTT-configuratie of remote writes
+zijn ingeschakeld en of het write-topic exact overeenkomt met bovenstaande
+notatie.
 
 Deze mapping is de basis voor de veiligheidslogica en moet synchroon blijven met de werkelijke hardwareconfiguratie.

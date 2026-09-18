@@ -2,6 +2,7 @@ import json
 import unittest
 
 from raspberry.mqtt_controller import TerrariumMQTTController
+from raspberry.service import SUBSCRIPTIONS, TerrariumMQTTService
 from raspberry.terrarium_logic import TerrariumLogic
 
 
@@ -50,6 +51,23 @@ class TerrariumLogicTests(unittest.TestCase):
         }))
 
         self.assertTrue(any(topic == "esp32/cmd/fans" for topic, _ in published))
+        self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
+
+        controller.handle_message("esp32/sensors", json.dumps({
+            "temperature_top": 25,
+            "humidity_top": 70,
+        }))
+        moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
+        self.assertEqual(moxa_commands[-1]["do5"], "ON")
+
+        controller.handle_message("moxa/status", json.dumps({
+            "di0": False,
+            "di1": True,
+            "di2": False,
+        }))
+        moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
+        self.assertEqual(moxa_commands[-1]["do5"], "OFF")
+        self.assertTrue(moxa_commands[-1]["alarm"])
 
         controller.handle_message("moxa/status", json.dumps({
             "di2": True,
@@ -81,6 +99,45 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(dry_day["led2"], 100)
         self.assertEqual(dry_day["led3"], 100)
         self.assertEqual(dry_day["led4"], 100)
+
+    def test_mqtt_service_subscribes_and_dispatches(self):
+        class FakeClient:
+            def __init__(self):
+                self.subscribed = []
+                self.published = []
+                self.on_connect = None
+                self.on_message = None
+
+            def subscribe(self, topic):
+                self.subscribed.append(topic)
+
+            def publish(self, topic, payload):
+                self.published.append((topic, payload))
+
+            def connect(self, broker, port, keepalive):
+                self.on_connect(self, None, {}, 0)
+
+            def loop_forever(self):
+                return None
+
+            def disconnect(self):
+                return None
+
+        client = FakeClient()
+        service = TerrariumMQTTService("example.local", client_factory=lambda: client)
+        service.run()
+
+        self.assertEqual(client.subscribed, list(SUBSCRIPTIONS))
+        client.on_message(client, None, type("Message", (), {
+            "topic": "esp32/sensors",
+            "payload": b'{"temperature_top": 30}',
+        })())
+        self.assertEqual(client.published[0][0], "esp32/cmd/fans")
+        service._publish("moxa/cmd/output", {"do5": "ON"})
+        self.assertIn(
+            ("ioThinx_4510/write/DO@DO-05/doStatus", '{"value": 1}'),
+            client.published,
+        )
 
 
 if __name__ == "__main__":
