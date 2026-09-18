@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from .terrarium_logic import TerrariumLogic
@@ -11,9 +12,13 @@ from .terrarium_logic import TerrariumLogic
 class TerrariumMQTTController:
     """Bridge MQTT topics with the terrarium logic rules."""
 
-    def __init__(self, broker: str = "192.168.24.166") -> None:
+    def __init__(self, broker: str = "192.168.24.166", settings: Optional[Dict[str, object]] = None) -> None:
         self.broker = broker
-        self.logic = TerrariumLogic()
+        self.logic = TerrariumLogic(settings=settings)
+
+    def update_settings(self, settings: Dict[str, object]) -> None:
+        """Pass UI/profile changes to the live rule engine."""
+        self.logic.update_settings(settings)
 
     def publish(self, topic: str, payload: Dict[str, Any]) -> None:
         """Publish a JSON payload to the given MQTT topic.
@@ -34,6 +39,8 @@ class TerrariumMQTTController:
             self.logic.update_sensor_state(data)
             command = self.logic.evaluate_fan_command()
             self.publish("esp32/cmd/fans", command)
+            lights = self.logic.evaluate_light_command(datetime.now().strftime("%H:%M"))
+            self.publish("esp32/cmd/lights", lights)
             moxa_command = self.logic.evaluate_moxa_outputs()
             self.publish("moxa/cmd/output", moxa_command)
             return command

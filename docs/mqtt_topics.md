@@ -109,7 +109,23 @@ Voorbeeld:
 Gebruik:
 
 - verlichtingsschakeling en dimniveau
-- nog te definiëren in detail afhankelijk van de gebruikte hardwareinterface
+- de Pi publiceert dit commando bij elk `esp32/sensors`-bericht
+- dag, nacht, zonsopkomst en zonsondergang volgen de terrarium-schedule
+
+Voorbeeld overdag:
+
+```json
+{
+  "state": "on",
+  "brightness": 80,
+  "leds": {
+    "led1": 80,
+    "led2": 80,
+    "led3": 80,
+    "led4": 80
+  }
+}
+```
 
 ---
 
@@ -162,8 +178,29 @@ De standaard regenwoudgrenzen zijn:
 - gemiddelde bodemvochtigheid onder 35%: `DO4 ON`
 - gemiddelde bodemvochtigheid vanaf 55%: `DO4 OFF`
 
+Bij een gemiddelde temperatuur onder `safety.temperature_too_low_c` wordt
+`DO06` als warmtelamp ingeschakeld. Bij normale of te hoge temperatuur wordt
+`DO06` uitgeschakeld. Een lek- of veiligheidsalarm heeft voorrang en schakelt
+`DO06` uit.
+
 Een lek (`DI2`) of laag reservoir (`DI0` / `DI1`) heeft altijd prioriteit en
 blokkeert de bijbehorende uitgang.
+
+Tijdens het regenseizoen kan de regelengine willekeurig een korte regenbui
+starten. De instellingen staan onder `seasons.rainy.rainstorm`:
+
+```json
+{
+  "enabled": true,
+  "chance_percent": 5,
+  "duration_minutes": 2,
+  "cooldown_minutes": 30
+}
+```
+
+Een actieve bui zet `DO4` (beregening) en `DO5` (mistmaker) aan. De bui werkt
+niet tijdens het droge seizoen en wordt altijd geblokkeerd door lek-, alarm- of
+reservoirstatus.
 
 ---
 

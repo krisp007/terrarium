@@ -31,6 +31,88 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertGreater(command["level"], 0)
         self.assertEqual(command["mode"], "auto")
 
+    def test_heater_turns_on_below_minimum_temperature(self):
+        logic = TerrariumLogic({"safety": {"temperature_too_low_c": 18.0}})
+        logic.update_sensor_state({"temperature_top": 17.5})
+
+        command = logic.evaluate_heater_command()
+
+        self.assertEqual(command["do6"], "ON")
+        self.assertEqual(command["reason"], "temperature_too_low")
+
+    def test_heater_stays_off_at_normal_temperature(self):
+        logic = TerrariumLogic()
+        logic.update_sensor_state({"temperature_top": 24.0})
+
+        command = logic.evaluate_heater_command()
+
+        self.assertEqual(command["do6"], "OFF")
+
+    def test_heater_is_forced_off_by_leak_alarm(self):
+        logic = TerrariumLogic()
+        logic.update_sensor_state({"temperature_top": 17.0})
+        logic.evaluate_moxa_state({"di2": True})
+
+        command = logic.evaluate_moxa_outputs()
+
+        self.assertEqual(command["do6"], "OFF")
+
+    def test_random_rainstorm_runs_only_in_rainy_season(self):
+        logic = TerrariumLogic({
+            "seasons": {
+                "rainy": {
+                    "rainstorm": {
+                        "chance_percent": 100,
+                        "duration_minutes": 2,
+                        "cooldown_minutes": 30,
+                    },
+                },
+            },
+        })
+
+        storm = logic.evaluate_rainstorm(season="rainy", now=1000, random_value=0.0)
+        self.assertTrue(storm["active"])
+        self.assertEqual(storm["do4"], "ON")
+        self.assertEqual(storm["do5"], "ON")
+        self.assertEqual(logic.evaluate_rainstorm(season="dry", now=1001, random_value=0.0)["active"], False)
+
+    def test_rainstorm_is_blocked_by_leak_or_empty_reservoir(self):
+        logic = TerrariumLogic()
+        logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
+
+        storm = logic.evaluate_rainstorm(now=1000, random_value=0.0)
+
+        self.assertFalse(storm["active"])
+        self.assertEqual(storm["reason"], "safety_block")
+
+    def test_fan_levels_follow_editable_settings(self):
+        logic = TerrariumLogic({
+            "fan_control": {
+                "temp_thresholds_c": {
+                    "low": 20,
+                    "medium": 23,
+                    "high": 26,
+                    "max_safe": 29,
+                },
+                "fan_levels_percent": {
+                    "off": 5,
+                    "low": 15,
+                    "medium": 30,
+                    "high": 60,
+                    "max": 90,
+                },
+            },
+        })
+        logic.update_sensor_state({"temperature_top": 25})
+        self.assertEqual(logic.evaluate_fan_command()["level"], 30)
+
+        logic.update_settings({
+            "fan_control": {
+                "fan_levels_percent": {"medium": 45},
+            },
+        })
+        self.assertEqual(logic.evaluate_fan_command()["level"], 45)
+
     def test_no_heartbeat_sets_alarm(self):
         logic = TerrariumLogic()
         logic.last_heartbeat = 9999999999
@@ -51,6 +133,7 @@ class TerrariumLogicTests(unittest.TestCase):
         }))
 
         self.assertTrue(any(topic == "esp32/cmd/fans" for topic, _ in published))
+        self.assertTrue(any(topic == "esp32/cmd/lights" for topic, _ in published))
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
 
         controller.handle_message("esp32/sensors", json.dumps({
@@ -99,6 +182,24 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(dry_day["led2"], 100)
         self.assertEqual(dry_day["led3"], 100)
         self.assertEqual(dry_day["led4"], 100)
+
+    def test_light_command_follows_day_and_night_schedule(self):
+        logic = TerrariumLogic()
+
+        night = logic.evaluate_light_command("23:00")
+        self.assertEqual(night["state"], "off")
+        self.assertEqual(night["brightness"], 0)
+
+        day = logic.evaluate_light_command("12:00", season="rainy")
+        self.assertEqual(day["state"], "on")
+        self.assertEqual(day["brightness"], 80)
+
+        dawn = logic.evaluate_light_command("05:50", season="rainy")
+        self.assertEqual(dawn["leds"]["led3"], 20)
+
+        dusk = logic.evaluate_light_command("18:25", season="rainy")
+        self.assertEqual(dusk["state"], "on")
+        self.assertLess(dusk["brightness"], 80)
 
     def test_mqtt_service_subscribes_and_dispatches(self):
         class FakeClient:

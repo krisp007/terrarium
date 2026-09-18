@@ -25,6 +25,7 @@ class TerrariumMQTTService:
         self,
         broker: str,
         port: int = 1883,
+        settings: Optional[dict[str, object]] = None,
         client_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.broker = broker
@@ -34,7 +35,7 @@ class TerrariumMQTTService:
 
             client_factory = mqtt.Client
         self.client = client_factory()
-        self.controller = TerrariumMQTTController(broker=broker)
+        self.controller = TerrariumMQTTController(broker=broker, settings=settings)
         self.controller.publish = self._publish
 
         self.client.on_connect = self._on_connect
@@ -96,15 +97,35 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the terrarium MQTT rule engine")
     parser.add_argument("--broker", default=os.getenv("TERRARIUM_MQTT_BROKER", "192.168.24.166"))
     parser.add_argument("--port", type=int, default=int(os.getenv("TERRARIUM_MQTT_PORT", "1883")))
+    parser.add_argument(
+        "--settings",
+        default=os.getenv("TERRARIUM_SETTINGS_FILE", "terrarium_settings_template.json"),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
         level=os.getenv("TERRARIUM_LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    settings: dict[str, object] = {}
+    try:
+        with open(args.settings, "r", encoding="utf-8") as settings_file:
+            loaded_settings = json.load(settings_file)
+        if isinstance(loaded_settings, dict):
+            settings = loaded_settings
+        else:
+            LOGGER.warning("Settings file is not a JSON object: %s", args.settings)
+    except (OSError, json.JSONDecodeError) as error:
+        LOGGER.warning("Could not load settings file %s: %s", args.settings, error)
+
     import paho.mqtt.client as mqtt
 
-    TerrariumMQTTService(args.broker, args.port, client_factory=mqtt.Client).run()
+    TerrariumMQTTService(
+        args.broker,
+        args.port,
+        settings=settings,
+        client_factory=mqtt.Client,
+    ).run()
 
 
 if __name__ == "__main__":

@@ -314,6 +314,11 @@ De unit gebruikt `/home/krisp/terrarium-project/.venv/bin/python`. Pas
 `ExecStart` in `services/terrarium-logic.service` aan wanneer de projectmap
 of virtuele omgeving op een andere locatie staat.
 
+De ventilatorinstellingen worden bij het starten geladen uit
+`terrarium_settings_template.json`. Een UI kan later een aangepast profiel
+opslaan en via `TERRARIUM_SETTINGS_FILE` laten gebruiken zonder de regelengine
+te wijzigen.
+
 ```bash
 pip list | grep azure
 ```

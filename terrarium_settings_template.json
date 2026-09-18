@@ -58,6 +58,12 @@
     "rainy": {
       "active": true,
       "description": "High humidity rainforest climate with frequent mist and reduced temperature spread",
+      "rainstorm": {
+        "enabled": true,
+        "chance_percent": 5,
+        "duration_minutes": 2,
+        "cooldown_minutes": 30
+      },
       "day": {
         "temperature": {
           "min_c": 23.5,
