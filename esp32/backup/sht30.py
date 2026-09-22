@@ -1,5 +1,7 @@
 import time
 
+TEMPERATURE_OFFSET = 0.0
+HUMIDITY_OFFSET = -5.0
 
 def read_sht30(i2c, addr=0x44):
     try:
@@ -14,8 +16,13 @@ def read_sht30(i2c, addr=0x44):
         temp_raw = (data[0] << 8) | data[1]
         humidity_raw = (data[3] << 8) | data[4]
 
-        temperature = -45 + (175 * temp_raw / 65535.0)
-        humidity = 100 * humidity_raw / 65535.0
+        temperature = (
+            -45 + (175 * temp_raw / 65535.0)
+            ) + TEMPERATURE_OFFSET
+            
+        humidity = (
+            100 * humidity_raw / 65535.0
+            ) + HUMIDITY_OFFSET
 
         return temperature, humidity
     except Exception as e:

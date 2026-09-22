@@ -231,6 +231,21 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(dusk["state"], "on")
         self.assertLess(dusk["brightness"], 80)
 
+    def test_moxa_lights_follow_day_and_night_schedule(self):
+        logic = TerrariumLogic()
+
+        night = logic.evaluate_moxa_light_outputs("23:00")
+        self.assertEqual(
+            {night[f"do{output}"] for output in range(4)},
+            {"OFF"},
+        )
+
+        day = logic.evaluate_moxa_light_outputs("12:00")
+        self.assertEqual(
+            {day[f"do{output}"] for output in range(4)},
+            {"ON"},
+        )
+
     def test_mqtt_service_subscribes_and_dispatches(self):
         class FakeClient:
             def __init__(self):

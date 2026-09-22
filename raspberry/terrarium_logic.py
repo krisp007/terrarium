@@ -20,10 +20,10 @@ DEFAULT_FAN_THRESHOLDS = {
 }
 DEFAULT_FAN_LEVELS = {
     "off": 0,
-    "low": 20,
-    "medium": 35,
-    "high": 55,
-    "max": 70,
+    "low": 25,
+    "medium": 50,
+    "high": 75,
+    "max": 100,
 }
 DEFAULT_HEATER_THRESHOLDS = {
     "temperature_too_low_c": 18.0,
@@ -442,6 +442,23 @@ class TerrariumLogic:
             "state": "on" if brightness else "off",
             "brightness": brightness,
             "leds": leds,
+        }
+    def evaluate_moxa_light_outputs(
+        self,
+        time_str: str,
+        season: str = "rainy",
+    ) -> Dict[str, object]:
+        """Build Moxa power commands for the four LED driver outputs."""
+        light = self.evaluate_light_command(time_str, season)
+        leds = light["leds"]
+
+        return {
+            "do0": "ON" if leds["led1"] > 0 else "OFF",
+            "do1": "ON" if leds["led2"] > 0 else "OFF",
+            "do2": "ON" if leds["led3"] > 0 else "OFF",
+            "do3": "ON" if leds["led4"] > 0 else "OFF",
+            "state": light["state"],
+            "brightness": light["brightness"],
         }
 
     @staticmethod

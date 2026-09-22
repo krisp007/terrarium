@@ -33,7 +33,9 @@ class TerrariumMQTTController:
         current = now or datetime.now()
         fan_command = self.logic.evaluate_fan_command()
         light_command = self.logic.evaluate_light_command(current.strftime("%H:%M"))
+        light_outputs = self.logic.evaluate_moxa_light_outputs(current.strftime("%H:%M"))
         safe_outputs = {
+            **light_outputs,
             "do4": "OFF",
             "do5": "OFF",
             "do6": "OFF",
@@ -57,9 +59,13 @@ class TerrariumMQTTController:
             self.logic.update_sensor_state(data)
             command = self.logic.evaluate_fan_command()
             self.publish("esp32/cmd/fans", command)
-            lights = self.logic.evaluate_light_command(datetime.now().strftime("%H:%M"))
+            current_time = datetime.now().strftime("%H:%M")
+            lights = self.logic.evaluate_light_command(current_time)
             self.publish("esp32/cmd/lights", lights)
-            moxa_command = self.logic.evaluate_moxa_outputs()
+            moxa_command = {
+                **self.logic.evaluate_moxa_light_outputs(current_time),
+                **self.logic.evaluate_moxa_outputs(),
+            }
             self.publish("moxa/cmd/output", moxa_command)
             return command
 
