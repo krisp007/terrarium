@@ -94,6 +94,8 @@ Gebruik:
 - PWM-niveau of modusoverschrijving
 - `channels.fan1` en `channels.fan6` houden permanent minimale luchtstroom in stand
 - fan 1 en fan 6 wisselen standaard elke 60 seconden op 25%
+- elke ventilator die van `0` naar een actief niveau start, draait eerst 1 seconde op 100%
+  en gaat daarna naar het gevraagde PWM-niveau
 
 ---
 
@@ -168,10 +170,42 @@ commando naar `moxa/cmd/output`:
 }
 ```
 
+Dezelfde Moxa-payload bevat ook de vier LED-voedingsuitgangen. De Moxa schakelt
+de voeding fysiek aan of uit; de ESP32 regelt het dimniveau via
+`esp32/cmd/lights` en de DFR0971:
+
+```json
+{
+  "do0": "ON",
+  "do1": "ON",
+  "do2": "ON",
+  "do3": "ON",
+  "do4": "OFF",
+  "do5": "ON",
+  "do6": "OFF",
+  "mistmaker": "ON",
+  "beregening": "OFF",
+  "alarm": false,
+  "reason": "sensor_control"
+}
+```
+
+De lichtscheduler gebruikt `DO0` tot en met `DO3` als volgt:
+
+- overdag of tijdens de dawn/dusk-ramp: `ON` voor elke LED-groep met een dimwaarde groter dan 0
+- 's nachts: `OFF` voor alle vier LED-groepen
+- elk Moxa-commando wordt vertaald naar `ioThinx_4510/write/DO@DO-xx/doStatus`
+  met `{"value":1}` voor `ON` en `{"value":0}` voor `OFF`
+
 De as-built mapping is:
 
+- `DO0` = LED Links voeding
+- `DO1` = LED Mid1 voeding
+- `DO2` = LED Mid2 voeding
+- `DO3` = LED Rechts voeding
 - `DO4` = beregening
 - `DO5` = mistmaker
+- `DO6` = warmtelamp
 
 De standaard regenwoudgrenzen zijn:
 

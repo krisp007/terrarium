@@ -164,13 +164,22 @@ Controleer:
 
 | Output | Functie | Doel |
 |--------|---------|------|
-| DO0 | Warmtelamp links | veiligheid / schakelaar |
-| DO1 | Warmtelamp rechts | veiligheid / schakelaar |
-| DO2 | Mistmaker | waterpijpleiding |
-| DO3 | Beregening | irrigatie systeem |
-| DO4 | Vulpomp mistmaker | reservoir aanvullen |
-| DO5 | Vulpomp beregening | reservoir aanvullen |
-| DO6 | Watervalpomp | waterstroom / bijzonder circuit |
+| DO0 | LED Links voeding | lichtschakeling |
+| DO1 | LED Mid1 voeding | lichtschakeling |
+| DO2 | LED Mid2 voeding | lichtschakeling |
+| DO3 | LED Rechts voeding | lichtschakeling |
+| DO4 | Beregening | irrigatie systeem |
+| DO5 | Mistmaker | waterpijpleiding |
+| DO6 | Warmtelamp | veiligheid / warmte |
+| DO7 | Watervalpomp | waterstroom / bijzonder circuit |
+| DO8 | Reserve | vrije output |
+| DO9 | Pomp 1 mistmaker | toekomstige of extra pompfunctie |
+| DO10 | Pomp 2 beregening | toekomstige of extra pompfunctie |
+| DO11 | Pomp 3 | reserve |
+| DO12 | Pomp 4 | reserve |
+| DO13 | Reserve | vrije output |
+| DO14 | Reserve | vrije output |
+| DO15 | WaterValve RO | RO-waterafsluiting of RO-voeding |
 
 ### 8.3 Moxa voeding
 

@@ -198,7 +198,7 @@ Dit is de huidige as-built baseline van het terrariumproject:
 
 ## 6. Belangrijkste aandachtspunt
 
-De float switches en lekdetectie gaan rechtstreeks naar de Moxa. Ze zijn geen ESP32 GPIO-signalen. De ESP32 blijft verantwoordelijk voor lokale metingen, heartbeat en PWM/LED-besturing.
+De float switches en lekdetectie gaan rechtstreeks naar de Moxa. Ze zijn geen ESP32 GPIO-signalen. De ESP32 blijft verantwoordelijk voor lokale metingen, heartbeat en PWM/dimming van de LED's. De Moxa schakelt de LED-voedingen op DO0-DO3 volgens het lichtschema en schakelt deze uit wanneer de LED-dimwaarde nul is.
 
 ---
 

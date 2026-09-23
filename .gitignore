@@ -7,3 +7,8 @@ ui/node_modules/
 ui/.next/
 ui/.env.local
 ui/.env*.local
+
+# Local environment configuration
+.env
+.env.*
+!.env.example

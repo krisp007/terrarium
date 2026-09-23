@@ -96,13 +96,22 @@ Gebruikelijke ingangen:
 
 Gebruikelijke uitgangen:
 
-- DO0 = Warmtelamp links
-- DO1 = Warmtelamp rechts
-- DO2 = Mistmaker
-- DO3 = Beregening
-- DO4 = Vulpomp mistmaker
-- DO5 = Vulpomp beregening
-- DO6 = Watervalpomp
+- DO0 = LED Links voeding
+- DO1 = LED Mid1 voeding
+- DO2 = LED Mid2 voeding
+- DO3 = LED Rechts voeding
+- DO4 = Beregening
+- DO5 = Mistmaker
+- DO6 = Warmtelamp
+- DO7 = Watervalpomp
+- DO8 = Reserve
+- DO9 = Pomp 1 mistmaker
+- DO10 = Pomp 2 beregening
+- DO11 = Pomp 3
+- DO12 = Pomp 4
+- DO13 = Reserve
+- DO14 = Reserve
+- DO15 = WaterValve RO
 
 ---
 
@@ -120,7 +129,9 @@ Controleer stap voor stap:
 - [ ] float switches goed aangesloten op de juiste GPIO's
 - [ ] leak sensor naar GPIO27
 - [ ] Moxa ingangen voor niveau en lekdetectie correct aangesloten
-- [ ] Moxa uitgangen gekoppeld aan pompen, mistmaker en verlichting
+- [ ] Moxa DO0-DO3 gekoppeld aan de LED-voedingen
+- [ ] Moxa DO4-DO6 gekoppeld aan beregening, mistmaker en warmtelamp
+- [ ] overige Moxa-uitgangen gekoppeld volgens de Moxa-I/O-map
 - [ ] 12V ventilatoren en XY-MOS modules aangesloten op gemeenschappelijke voeding
 
 > Als één aansluitpunt niet klopt, werkt de volledige automatisering niet betrouwbaar.
@@ -316,6 +327,7 @@ Zet de ventilatoren tijdelijk handmatig aan in testmodus.
 Controleer:
 
 - PWM werkt
+- ventilator start kort op 100% en gaat daarna naar het gevraagde niveau
 - 12V voeding aanwezig
 - fan draait correct
 - geen kortsluiting / te hoge stroom

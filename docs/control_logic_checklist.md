@@ -52,6 +52,7 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] fan OFF bij te lage temp
 - [x] fan max bij hoge temp
 - [x] minimum airflow tegen schimmel: fan 1 en fan 6 afwisselend op 25%
+- [x] ventilator start 1 seconde op 100% voordat het gevraagde niveau wordt toegepast
 - [x] safety override heeft prioriteit
 - [x] warmtelamp `DO06` aan bij temperatuur onder `temperature_too_low_c`
 - [x] warmtelamp uit bij normale of te hoge temperatuur
@@ -65,6 +66,8 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] `esp32/cmd/fans` wordt verzonden
 - [x] `esp32/cmd/lights` wordt verzonden door de Pi-regelengine
 - [x] `moxa/cmd/output` wordt verzonden
+- [x] Moxa DO0-DO03 schakelen de LED-voedingen volgens het lichtschema
+- [x] Moxa-LED-voedingen zijn 's nachts uit en overdag aan
 - [x] Moxa DO-commando's gebruiken `ioThinx_4510/write/DO@DO-xx/doStatus`
 - [x] outputwaarden gebruiken numerieke payloads (`{"value":1}` / `{"value":0}`)
 - [x] DO00-DO03 en DO05 live geactiveerd en bevestigd met `value:1`

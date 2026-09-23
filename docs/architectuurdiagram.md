@@ -389,13 +389,13 @@ Aantal:
 
 ## 7.2 Digitale uitgangen
 
-- DO0 = Warmtelamp links
-- DO1 = Warmtelamp rechts
-- DO2 = Mistmaker
-- DO3 = Beregening
-- DO4 = Vulpomp mistmaker
-- DO5 = Vulpomp beregening
-- DO6 = Watervalpomp
+- DO0 = LED Links voeding
+- DO1 = LED Mid1 voeding
+- DO2 = LED Mid2 voeding
+- DO3 = LED Rechts voeding
+- DO4 = Beregening
+- DO5 = Mistmaker
+- DO6 = Warmtelamp
 
 ---
 

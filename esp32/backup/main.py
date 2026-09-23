@@ -18,7 +18,9 @@ from vents import VentController
 
 
 vent_controller = None
-fan_outputs = {"fan1": 0, "fan6": 0}
+fan_outputs = {f"fan{channel + 1}": 0 for channel in range(6)}
+FAN_STARTUP_BOOST_PERCENT = 100
+FAN_STARTUP_BOOST_MS = 1000
 
 
 def handle_fan_command(topic, message):
@@ -27,21 +29,29 @@ def handle_fan_command(topic, message):
     try:
         command = json.loads(message)
         channels = command.get("channels", {})
-        fan1 = channels.get("fan1", 0)
-        fan6 = channels.get("fan6", 0)
-        if fan1 > 0 and fan_outputs["fan1"] == 0:
-            vent_controller.set_fan(0, 100)
-            time.sleep_ms(2000)
-        if fan6 > 0 and fan_outputs["fan6"] == 0:
-            vent_controller.set_fan(5, 100)
-            time.sleep_ms(2000)
-        vent_controller.set_fan(0, fan1)
-        vent_controller.set_fan(5, fan6)
-        fan_outputs["fan1"] = fan1
-        fan_outputs["fan6"] = fan6
         level = command.get("level", 0)
-        for channel in range(1, 5):
-            vent_controller.set_fan(channel, level)
+        target_outputs = {
+            "fan1": channels.get("fan1", 0),
+            "fan2": level,
+            "fan3": level,
+            "fan4": level,
+            "fan5": level,
+            "fan6": channels.get("fan6", 0),
+        }
+        starting_channels = [
+            channel
+            for channel in range(6)
+            if target_outputs[f"fan{channel + 1}"] > 0
+            and fan_outputs[f"fan{channel + 1}"] == 0
+        ]
+        for channel in starting_channels:
+            vent_controller.set_fan(channel, FAN_STARTUP_BOOST_PERCENT)
+        if starting_channels:
+            time.sleep_ms(FAN_STARTUP_BOOST_MS)
+        for channel in range(6):
+            fan_name = f"fan{channel + 1}"
+            vent_controller.set_fan(channel, target_outputs[fan_name])
+            fan_outputs[fan_name] = target_outputs[fan_name]
         print("Fan command applied", command)
     except Exception as error:
         print("Fan command error", error)
@@ -132,7 +142,7 @@ i2c = I2C(
 )
 
 pca = PCA9685(i2c)
-pca.freq(1000)
+pca.freq(25000)
 vent_controller = VentController(pca)
 
 print("I2C Scan:", i2c.scan())
