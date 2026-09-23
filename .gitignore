@@ -8,6 +8,9 @@ ui/.next/
 ui/.env.local
 ui/.env*.local
 
+# Azure Functions deployment dependencies
+api/.python_packages/
+
 # Local environment configuration
 .env
 .env.*
