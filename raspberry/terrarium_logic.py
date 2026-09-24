@@ -20,9 +20,9 @@ DEFAULT_FAN_THRESHOLDS = {
 }
 DEFAULT_FAN_LEVELS = {
     "off": 0,
-    "low": 25,
+    "low": 30,
     "medium": 50,
-    "high": 75,
+    "high": 80,
     "max": 100,
 }
 DEFAULT_HEATER_THRESHOLDS = {
@@ -56,7 +56,7 @@ class TerrariumLogic:
         self.rainstorm_until = 0.0
         self.rainstorm_cooldown_until = 0.0
         self.random_source: Callable[[], float] = random.random
-        self.minimum_airflow_percent = 25
+        self.minimum_airflow_percent = 30
         self.minimum_airflow_interval_seconds = 60
         if settings is not None:
             self.update_settings(settings)
@@ -310,11 +310,12 @@ class TerrariumLogic:
 
     def _fan_command(self, level: int, active_minimum_fan: int) -> Dict[str, object]:
         """Keep one of the two end fans moving to prevent stagnant air."""
+        level = max(int(level), self.minimum_airflow_percent)
         fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
         fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
         return {
             "mode": "auto",
-            "level": int(level),
+            "level": level,
             "channels": {
                 "fan1": fan1,
                 "fan6": fan6,

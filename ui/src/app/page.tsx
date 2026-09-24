@@ -9,7 +9,7 @@ type Status = {
   moxa?: { status?: string; inputs?: Record<string, number>; outputs?: Record<string, number>; last_seen?: number };
   commands?: Record<string, Record<string, unknown>>;
 };
-type HistoryItem = { timestamp: number; source: string; topic?: string; values: Record<string, unknown> };
+type HistoryItem = { timestamp: number; timestampIso?: string; source: string; topic?: string; values: Record<string, unknown> };
 
 const formatValue = (value: number | null | undefined, unit = "") => value == null ? "--" : `${value.toFixed(1)}${unit}`;
 const active = (value: unknown) => value === 1 || value === "ON" || value === true;
@@ -25,8 +25,19 @@ export default function Home() {
       try {
         const [statusResponse, historyResponse] = await Promise.all([fetch("/api/status", { cache: "no-store" }), fetch("/api/history", { cache: "no-store" })]);
         if (!statusResponse.ok) throw new Error("Pi API offline");
-        setStatus(await statusResponse.json());
-        if (historyResponse.ok) setHistory(await historyResponse.json());
+        const nextStatus = await statusResponse.json();
+        const nextHistory = historyResponse.ok ? await historyResponse.json() : [];
+        if (nextStatus.values && !nextStatus.service) {
+          setStatus({
+            service: { status: "cloud" },
+            mqtt: { status: nextStatus.values.mqttConnected ? "connected" : "unknown" },
+            esp32: { status: nextStatus.values.status ?? "unknown", sensors: nextStatus.values.sensors ?? {} },
+            moxa: { status: "cloud", outputs: nextStatus.values.outputs ?? {} },
+          });
+        } else {
+          setStatus(nextStatus);
+        }
+        setHistory(Array.isArray(nextHistory) ? nextHistory : []);
         setError("");
       } catch (refreshError) {
         setError(refreshError instanceof Error ? refreshError.message : "Dashboard offline");
@@ -41,13 +52,13 @@ export default function Home() {
   const sensors = status.esp32?.sensors ?? {};
   const outputs = status.moxa?.outputs ?? {};
   const recentHistory = useMemo(() => history.slice(0, 18), [history]);
-  const online = status.service?.status === "online" && status.mqtt?.status === "connected";
+  const online = status.service?.status === "online" || status.service?.status === "cloud";
 
   return <div className="shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">◒</div><div><h1>TerraControl</h1><p>Costa Rica rainforest</p></div></div>
       <nav className="nav"><button className="active">◈ Overview</button><button>◌ Climate schedule</button><button>⌁ History</button><button>⚙ System</button></nav>
-      <div className="sidebar-footer"><span className="live-dot" />{online ? "Local control online" : "Connection check required"}<br /><span>Pi · MQTT · Moxa · ESP32</span></div>
+      <div className="sidebar-footer"><span className="live-dot" />{online ? "Cloud mirror online" : "Connection check required"}<br /><span>Azure · Pi · MQTT · Moxa · ESP32</span></div>
     </aside>
     <main className="main">
       <header className="topbar"><div><div className="eyebrow">Live terrarium control</div><h2>Rainforest overview</h2><p>System state, climate readings and actuator feedback.</p></div><div className="clock">{now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}<br /><small>Pi local time</small></div></header>
@@ -65,7 +76,7 @@ export default function Home() {
         <section className="card span-4"><h3>System health</h3><div className="status-row"><span>Pi service</span><span className="pill">{String(status.service?.status ?? "unknown")}</span></div><div className="status-row"><span>MQTT broker</span><span className="pill">{String(status.mqtt?.status ?? "unknown")}</span></div><div className="status-row"><span>ESP32</span><span className={`pill ${status.esp32?.status === "online" ? "" : "warn"}`}>{status.esp32?.status ?? "unknown"}</span></div><div className="status-row"><span>Moxa ioThinx</span><span className={`pill ${status.moxa?.status === "online" ? "" : "warn"}`}>{status.moxa?.status ?? "unknown"}</span></div></section>
 
         <section className="card span-6"><h3>Moxa outputs</h3>{[0,1,2,3,4,5,6].map((output) => { const key = `DO@DO-${String(output).padStart(2, "0")}`; return <div className="status-row" key={key}><span>DO{String(output).padStart(2, "0")} {output < 4 ? "Lamp" : output === 5 ? "Mistmaker" : output === 6 ? "Warmtelamp" : "Irrigation"}</span><span className={`pill ${active(outputs[key]) ? "" : "off"}`}>{active(outputs[key]) ? "ON" : "OFF"}</span></div>; })}</section>
-        <section className="card span-6"><h3>Recent history</h3><div className="history">{recentHistory.length ? recentHistory.map((item, index) => <div className="history-row" key={`${item.timestamp}-${index}`}><span>{new Date(item.timestamp * 1000).toLocaleTimeString("en-GB")}</span><strong>{item.source}</strong><code>{JSON.stringify(item.values)}</code></div>) : <div className="empty">No history available yet.</div>}</div></section>
+        <section className="card span-6"><h3>Recent history</h3><div className="history">{recentHistory.length ? recentHistory.map((item, index) => <div className="history-row" key={`${item.timestamp}-${index}`}><span>{item.timestampIso ? new Date(item.timestampIso).toLocaleString("en-GB") : new Date(item.timestamp * 1000).toLocaleString("en-GB")}</span><strong>{item.source}</strong><code>{JSON.stringify(item.values)}</code></div>) : <div className="empty">No history available yet.</div>}</div></section>
       </div>
     </main>
   </div>;

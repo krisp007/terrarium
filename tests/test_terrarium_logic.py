@@ -32,12 +32,20 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertGreater(command["level"], 0)
         self.assertEqual(command["mode"], "auto")
-        self.assertEqual(command["channels"]["fan1"], 25)
+        self.assertEqual(command["channels"]["fan1"], 30)
         self.assertEqual(command["channels"]["fan6"], 0)
 
         alternate = logic.evaluate_fan_command(now=60)
         self.assertEqual(alternate["channels"]["fan1"], 0)
-        self.assertEqual(alternate["channels"]["fan6"], 25)
+        self.assertEqual(alternate["channels"]["fan6"], 30)
+
+    def test_all_regular_fans_respect_minimum_airflow(self):
+        logic = TerrariumLogic()
+        logic.update_sensor_state({"temperature_top": 20.0})
+
+        command = logic.evaluate_fan_command(now=0)
+
+        self.assertEqual(command["level"], 30)
 
     def test_heater_turns_on_below_minimum_temperature(self):
         logic = TerrariumLogic({"safety": {"temperature_too_low_c": 18.0}})
@@ -104,15 +112,15 @@ class TerrariumLogicTests(unittest.TestCase):
                 },
                 "fan_levels_percent": {
                     "off": 5,
-                    "low": 15,
-                    "medium": 30,
-                    "high": 60,
-                    "max": 90,
+                    "low": 30,
+                    "medium": 50,
+                    "high": 80,
+                    "max": 100,
                 },
             },
         })
         logic.update_sensor_state({"temperature_top": 25})
-        self.assertEqual(logic.evaluate_fan_command()["level"], 30)
+        self.assertEqual(logic.evaluate_fan_command()["level"], 50)
 
         logic.update_settings({
             "fan_control": {

@@ -7,7 +7,7 @@
       "direction": "in",
       "name": "req",
       "methods": ["get"],
-      "route": "history"
+      "route": "cloud-status"
     },
     {
       "type": "http",

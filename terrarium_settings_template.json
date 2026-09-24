@@ -105,7 +105,7 @@
     "minimum_airflow": {
       "enabled": true,
       "fans": [1, 6],
-      "percent": 25,
+      "percent": 30,
       "alternate_seconds": 60,
       "purpose": "prevent_stagnant_air_and_mold"
     },
@@ -117,10 +117,10 @@
     },
     "fan_levels_percent": {
       "off": 0,
-      "low": 20,
-      "medium": 35,
-      "high": 55,
-      "max": 70
+      "low": 30,
+      "medium": 50,
+      "high": 80,
+      "max": 100
     }
   },
   "lighting": {

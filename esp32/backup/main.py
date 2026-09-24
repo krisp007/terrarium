@@ -142,7 +142,7 @@ i2c = I2C(
 )
 
 pca = PCA9685(i2c)
-pca.freq(25000)
+pca.freq(20000)
 vent_controller = VentController(pca)
 
 print("I2C Scan:", i2c.scan())
