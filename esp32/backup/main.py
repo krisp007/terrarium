@@ -24,19 +24,15 @@ FAN_STARTUP_BOOST_MS = 1000
 
 
 def handle_fan_command(topic, message):
-    """Apply Pi fan commands: CH0=fan1 and CH5=fan6."""
+    """Apply per-channel fan commands, falling back to the shared level."""
     global vent_controller
     try:
         command = json.loads(message)
         channels = command.get("channels", {})
         level = command.get("level", 0)
         target_outputs = {
-            "fan1": channels.get("fan1", 0),
-            "fan2": level,
-            "fan3": level,
-            "fan4": level,
-            "fan5": level,
-            "fan6": channels.get("fan6", 0),
+            f"fan{channel}": channels.get(f"fan{channel}", level)
+            for channel in range(1, 7)
         }
         starting_channels = [
             channel

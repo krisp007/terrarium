@@ -30,6 +30,12 @@ def query(container_name: str, statement: str, parameters: list[dict[str, Any]])
     )
 
 
+def upsert(container_name: str, document: dict[str, Any]) -> dict[str, Any]:
+    """Upsert one document into a Cosmos container using its configured id."""
+    container = database().get_container_client(container_name)
+    return dict(container.upsert_item(document))
+
+
 def response(payload: Any, status_code: int = 200) -> Any:
     import azure.functions as func
 

@@ -47,6 +47,34 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertEqual(command["level"], 30)
 
+    def test_manual_fan_override_blocks_minimum_airflow_until_auto(self):
+        logic = TerrariumLogic()
+        logic.set_fan_override({f"fan{number}": 0 for number in range(1, 7)})
+
+        manual = logic.evaluate_fan_command(now=0)
+
+        self.assertEqual(manual["mode"], "manual")
+        self.assertEqual(manual["minimum_airflow"]["enabled"], True)
+        self.assertEqual(manual["channels"], {f"fan{number}": 0 for number in range(1, 7)})
+
+        logic.clear_fan_override()
+        automatic = logic.evaluate_fan_command(now=0)
+        self.assertEqual(automatic["mode"], "auto")
+        self.assertEqual(automatic["channels"]["fan1"], 30)
+
+    def test_manual_led_override_blocks_scheduled_brightness_until_auto(self):
+        logic = TerrariumLogic()
+        logic.set_led_override("led1", 0)
+
+        manual = logic.evaluate_light_command("12:00", season="rainy")
+
+        self.assertEqual(manual["leds"]["led1"], 0)
+        self.assertEqual(manual["leds"]["led2"], 80)
+
+        logic.clear_led_override("led1")
+        automatic = logic.evaluate_light_command("12:00", season="rainy")
+        self.assertEqual(automatic["leds"]["led1"], 80)
+
     def test_heater_turns_on_below_minimum_temperature(self):
         logic = TerrariumLogic({"safety": {"temperature_too_low_c": 18.0}})
         logic.update_sensor_state({"temperature_top": 17.5})
@@ -168,34 +196,51 @@ class TerrariumLogicTests(unittest.TestCase):
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
         self.assertEqual(moxa_commands[-1]["reason"], "moxa_status_unknown")
 
-        controller.handle_message("moxa/status", json.dumps({
-            "di0": True,
-            "di1": True,
-            "di2": False,
-        }))
-
-        controller.handle_message("esp32/sensors", json.dumps({
-            "temperature_top": 25,
-            "humidity_top": 70,
-        }))
+        controller.handle_message("moxa/status", json.dumps({"di0": True, "di1": True, "di2": False}))
+        controller.handle_message("esp32/sensors", json.dumps({"temperature_top": 25, "humidity_top": 70}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
         self.assertEqual(moxa_commands[-1]["do5"], "ON")
 
-        controller.handle_message("moxa/status", json.dumps({
-            "di0": False,
-            "di1": True,
-            "di2": False,
-        }))
+        controller.handle_message("moxa/status", json.dumps({"di0": False, "di1": True, "di2": False}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
         self.assertEqual(moxa_commands[-1]["do5"], "OFF")
         self.assertTrue(moxa_commands[-1]["alarm"])
 
-        controller.handle_message("moxa/status", json.dumps({
-            "di2": True,
-            "alarm": False,
-        }))
-
+        controller.handle_message("moxa/status", json.dumps({"di2": True, "alarm": False}))
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
+
+    def test_mqtt_controller_publishes_manual_actor_overrides(self):
+        controller = TerrariumMQTTController(broker="example.local")
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+
+        controller.apply_override({
+            "actor_type": "Fan",
+            "actor_name": "fan-2",
+            "state": True,
+            "intensity": 45,
+        })
+        self.assertEqual(published[-1][0], "esp32/cmd/fans")
+        self.assertEqual(published[-1][1]["level"], 30)
+        self.assertEqual(published[-1][1]["channels"]["fan2"], 45)
+
+        controller.apply_override({
+            "actor_type": "LED",
+            "actor_name": "led-3",
+            "state": True,
+            "intensity": 70,
+        })
+        light_commands = [payload for topic, payload in published if topic == "esp32/cmd/lights"]
+        self.assertEqual(light_commands[-1]["leds"]["led3"], 70)
+        self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
+
+        controller.apply_override({
+            "actor_type": "Pump",
+            "actor_name": "waterfall",
+            "state": True,
+        })
+        self.assertEqual(published[-1][0], "moxa/cmd/output")
+        self.assertEqual(published[-1][1]["do7"], "ON")
 
     def test_rainforest_transition_steps(self):
         logic = TerrariumLogic()

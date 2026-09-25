@@ -75,8 +75,28 @@ class TerrariumMQTTService:
 
             topic = f"ioThinx_4510/write/DO@DO-{output:02d}/doStatus"
             value = {"value": 1 if state == "ON" else 0}
-            self.client.publish(topic, json.dumps(value))
+            result = self.client.publish(topic, json.dumps(value))
+            self.status.record(
+                "moxa_write",
+                {
+                    **value,
+                    "logical_topic": MOXA_OUTPUT_TOPIC,
+                    "logical_state": state,
+                    "publish_rc": getattr(result, "rc", MQTT_SUCCESS),
+                },
+                topic=topic,
+            )
             LOGGER.info("Moxa DO%02d <- %s", output, state)
+
+    def apply_override(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Apply a UI override or re-publish the current automatic state."""
+        if payload.get("mode") == "auto":
+            result = self.controller.apply_override(payload)
+            self.controller.publish_current_state()
+            return result
+        result = self.controller.apply_override(payload)
+        result["mode"] = "manual"
+        return result
 
     def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int) -> None:
         if rc != MQTT_SUCCESS:
@@ -130,7 +150,7 @@ class TerrariumMQTTService:
             current = dict(self.controller.logic.moxa_state or {})
             current[f"di{input_number}"] = bool(value)
             actions = self.controller.logic.evaluate_moxa_state(current)
-            self._publish("moxa/cmd/output", actions)
+            self._publish("moxa/cmd/output", self.controller.apply_output_overrides(actions))
         except (ValueError, TypeError, json.JSONDecodeError):
             LOGGER.warning("Invalid Moxa DI message on %s", topic)
 
@@ -147,6 +167,7 @@ class TerrariumMQTTService:
         self.status_server = start_dashboard(
             self.status,
             port=self.status_port,
+            override_callback=self.apply_override,
         )
         self.client.connect(self.broker, self.port, keepalive=60)
         self.client.loop_forever()

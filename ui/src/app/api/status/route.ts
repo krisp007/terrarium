@@ -4,7 +4,7 @@ const backend = process.env.TERRARIUM_API_URL ?? process.env.TERRARIUM_PI_URL ??
 
 export async function GET() {
   try {
-    const response = await fetch(`${backend}/api/cloud-status?deviceId=terrarium-pi`, { cache: "no-store" });
+    const response = await fetch(`${backend}/api/status`, { cache: "no-store" });
     const payload = await response.json();
     return NextResponse.json(payload, { status: response.status });
   } catch {

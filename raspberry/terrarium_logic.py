@@ -58,6 +58,8 @@ class TerrariumLogic:
         self.random_source: Callable[[], float] = random.random
         self.minimum_airflow_percent = 30
         self.minimum_airflow_interval_seconds = 60
+        self.manual_fan_overrides: Dict[str, Dict[str, object]] = {}
+        self.manual_led_overrides: Dict[str, Dict[str, object]] = {}
         if settings is not None:
             self.update_settings(settings)
 
@@ -282,7 +284,7 @@ class TerrariumLogic:
         active_minimum_fan = 1 if int(current_time / self.minimum_airflow_interval_seconds) % 2 == 0 else 6
         if not self.sensor_state:
             level = 0
-            return self._fan_command(level, active_minimum_fan)
+            return self._apply_fan_overrides(self._fan_command(level, active_minimum_fan), current_time)
 
         temps = [
             float(value)
@@ -291,7 +293,7 @@ class TerrariumLogic:
         ]
 
         if not temps:
-            return self._fan_command(0, active_minimum_fan)
+            return self._apply_fan_overrides(self._fan_command(0, active_minimum_fan), current_time)
 
         average_temp = sum(temps) / len(temps)
 
@@ -306,7 +308,74 @@ class TerrariumLogic:
         else:
             level = self.fan_levels["max"]
 
-        return self._fan_command(int(level), active_minimum_fan)
+        return self._apply_fan_overrides(self._fan_command(int(level), active_minimum_fan), current_time)
+
+    def set_fan_override(
+        self,
+        channels: Dict[str, int],
+        level: int = 0,
+        duration_minutes: Optional[float] = None,
+        fan_name: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Hold one or more manual fan levels until they expire or Auto is restored."""
+        expires_at = None
+        if duration_minutes is not None:
+            expires_at = time.time() + max(0.0, float(duration_minutes)) * 60
+        targets = [fan_name] if fan_name else [f"fan{number}" for number in range(1, 7)]
+        for target in targets:
+            self.manual_fan_overrides[target] = {"level": max(0, min(100, int(channels.get(target, level)))), "expires_at": expires_at}
+        return self.evaluate_fan_command()
+
+    def clear_fan_override(self, fan_name: Optional[str] = None) -> None:
+        """Return fan control to the automatic climate rules."""
+        if fan_name:
+            self.manual_fan_overrides.pop(fan_name, None)
+        else:
+            self.manual_fan_overrides.clear()
+
+    def fan_override_expiry(self, fan_name: str) -> Optional[float]:
+        override = self.manual_fan_overrides.get(fan_name)
+        return None if override is None else override.get("expires_at")
+
+    def set_led_override(self, led_name: str, brightness: int, duration_minutes: Optional[float] = None) -> None:
+        """Hold one LED brightness until it expires or Auto is restored."""
+        expires_at = None
+        if duration_minutes is not None:
+            expires_at = time.time() + max(0.0, float(duration_minutes)) * 60
+        self.manual_led_overrides[led_name] = {
+            "brightness": max(0, min(100, int(brightness))),
+            "expires_at": expires_at,
+        }
+
+    def clear_led_override(self, led_name: str) -> None:
+        """Return one LED to its automatic schedule."""
+        self.manual_led_overrides.pop(led_name, None)
+
+    def led_override_expiry(self, led_name: str) -> Optional[float]:
+        override = self.manual_led_overrides.get(led_name)
+        return None if override is None else override.get("expires_at")
+
+    def _apply_led_overrides(self, leds: Dict[str, int]) -> Dict[str, int]:
+        current_time = time.time()
+        result = dict(leds)
+        for led_name, override in list(self.manual_led_overrides.items()):
+            expires_at = override.get("expires_at")
+            if expires_at is not None and current_time >= float(expires_at):
+                self.manual_led_overrides.pop(led_name, None)
+                continue
+            if led_name in result:
+                result[led_name] = int(override["brightness"])
+        return result
+
+    def _light_command(self, leds: Dict[str, int]) -> Dict[str, object]:
+        applied_leds = self._apply_led_overrides(leds)
+        brightness = max(applied_leds.values())
+        return {
+            "state": "on" if brightness else "off",
+            "brightness": brightness,
+            "leds": applied_leds,
+            "overrides": {name: item.get("expires_at") for name, item in self.manual_led_overrides.items()},
+        }
 
     def _fan_command(self, level: int, active_minimum_fan: int) -> Dict[str, object]:
         """Keep one of the two end fans moving to prevent stagnant air."""
@@ -318,6 +387,10 @@ class TerrariumLogic:
             "level": level,
             "channels": {
                 "fan1": fan1,
+                "fan2": level,
+                "fan3": level,
+                "fan4": level,
+                "fan5": level,
                 "fan6": fan6,
             },
             "minimum_airflow": {
@@ -326,6 +399,20 @@ class TerrariumLogic:
                 "percent": self.minimum_airflow_percent,
             },
         }
+
+    def _apply_fan_overrides(self, command: Dict[str, object], current_time: float) -> Dict[str, object]:
+        channels = dict(command["channels"])
+        active_overrides: Dict[str, object] = {}
+        for fan_name, override in list(self.manual_fan_overrides.items()):
+            expires_at = override.get("expires_at")
+            if expires_at is not None and current_time >= float(expires_at):
+                self.manual_fan_overrides.pop(fan_name, None)
+                continue
+            channels[fan_name] = int(override["level"])
+            active_overrides[fan_name] = expires_at
+        if not active_overrides:
+            return command
+        return {**command, "mode": "manual", "channels": channels, "overrides": active_overrides}
 
     def update_heartbeat(self, timestamp: int) -> None:
         """Record the last successful ESP32 heartbeat timestamp."""
@@ -414,13 +501,13 @@ class TerrariumLogic:
             hour, minute = [int(part) for part in time_str.split(":")]
             total_minutes = hour * 60 + minute
         except Exception:
-            return {"state": "off", "brightness": 0, "leds": self._dark_leds()}
+            return self._light_command(self._dark_leds())
 
         sunrise = 5 * 60 + 45
         sunset = 18 * 60 + 15
         transition = 20
         if total_minutes < sunrise or total_minutes >= sunset + transition:
-            return {"state": "off", "brightness": 0, "leds": self._dark_leds()}
+            return self._light_command(self._dark_leds())
 
         if total_minutes < sunrise + transition:
             leds = self._scheduled_dawn_profile(total_minutes - sunrise, season)
@@ -438,12 +525,7 @@ class TerrariumLogic:
             target = 80 if season == "rainy" else 100
             leds = {key: target for key in ("led1", "led2", "led3", "led4")}
 
-        brightness = max(leds.values())
-        return {
-            "state": "on" if brightness else "off",
-            "brightness": brightness,
-            "leds": leds,
-        }
+        return self._light_command(leds)
     def evaluate_moxa_light_outputs(
         self,
         time_str: str,

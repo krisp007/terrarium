@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -84,6 +86,28 @@ class StatusStore:
         with self._lock:
             return json.loads(json.dumps(self._status))
 
+    def schedule(self) -> Dict[str, Any]:
+        """Read the locally cached monthly profiles for offline operation."""
+        path = Path(os.getenv("TERRARIUM_SCHEDULE_FILE", "terrarium_schedule.json"))
+        try:
+            with path.open("r", encoding="utf-8") as schedule_file:
+                payload = json.load(schedule_file)
+            return payload if isinstance(payload, dict) else {"profiles": {}}
+        except (OSError, json.JSONDecodeError):
+            return {"profiles": {}, "storage": "local", "sync": "pending"}
+
+    def save_schedule(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Persist profiles atomically so the Pi remains the offline source of truth."""
+        path = Path(os.getenv("TERRARIUM_SCHEDULE_FILE", "terrarium_schedule.json"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+        document = {"profiles": payload.get("profiles", {}), "storage": "local", "sync": "pending", "updated_at": time.time()}
+        with temporary_path.open("w", encoding="utf-8") as schedule_file:
+            json.dump(document, schedule_file, indent=2)
+            schedule_file.write("\n")
+        temporary_path.replace(path)
+        return document
+
 
 HTML = """<!doctype html>
 <html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -106,10 +130,14 @@ refresh();setInterval(refresh,3000);
 
 class DashboardHandler(BaseHTTPRequestHandler):
     store: StatusStore
+    override_callback: Any = None
 
     def do_GET(self) -> None:
         if self.path.startswith("/api/history"):
             body = json.dumps(self.store.history()).encode("utf-8")
+            content_type = "application/json"
+        elif self.path == "/api/schedule":
+            body = json.dumps(self.store.schedule()).encode("utf-8")
             content_type = "application/json"
         elif self.path == "/api/status":
             body = json.dumps(self.store.snapshot()).encode("utf-8")
@@ -127,12 +155,50 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_PUT(self) -> None:
+        if self.path != "/api/schedule":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("profiles", {}), dict):
+                raise ValueError("profiles must be an object")
+            body = json.dumps(self.store.save_schedule(payload)).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ValueError, json.JSONDecodeError):
+            self.send_error(400, "Invalid schedule payload")
+
+    def do_POST(self) -> None:
+        if self.path != "/api/override" or self.override_callback is None:
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict) or not payload.get("actor_type") or not payload.get("actor_name"):
+                raise ValueError("actor_type and actor_name are required")
+            body = json.dumps(self.override_callback(payload)).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ValueError, json.JSONDecodeError) as error:
+            self.send_error(400, str(error))
+
     def log_message(self, *_args: object) -> None:
         return
 
 
-def start_dashboard(store: StatusStore, host: str = "0.0.0.0", port: int = 8080) -> ThreadingHTTPServer:
-    handler = type("TerrariumDashboardHandler", (DashboardHandler,), {"store": store})
+def start_dashboard(store: StatusStore, host: str = "0.0.0.0", port: int = 8080, override_callback: Any = None) -> ThreadingHTTPServer:
+    handler = type("TerrariumDashboardHandler", (DashboardHandler,), {"store": store, "override_callback": override_callback})
     server = ThreadingHTTPServer((host, port), handler)
     threading.Thread(target=server.serve_forever, name="status-dashboard", daemon=True).start()
     return server
