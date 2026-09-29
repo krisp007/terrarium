@@ -102,22 +102,22 @@ Deze template bevat:
 
 ## Status UI
 
-De lokale statuspagina draait op de Raspberry Pi:
+Het lokale scherm van de Raspberry Pi toont de gemiddelde luchttemperatuur en luchtvochtigheid:
 
 ```text
 http://192.168.24.166:8080
 ```
 
-De pagina toont de status van de Pi-service, MQTT, ESP32, Moxa DI/DO-feedback
-en de laatst verzonden commando's. De machineleesbare status is beschikbaar op
+De pagina wordt in kioskmodus gestart wanneer de Labwc-desktopsessie begint.
+De volledige machineleesbare status blijft beschikbaar op
 `http://192.168.24.166:8080/api/status`.
 
 ## Next.js UI
 
-De nieuwe webinterface staat in [ui](ui) en volgt de TerraControl-interface
-uit `krisp007/terra`, maar gebruikt Next.js in plaats van Vue/Vite. De UI leest
-de lokale Pi-status-API en toont systeemstatus, sensoren, Moxa-uitgangen en
-historie.
+De nieuwe webinterface staat in [ui](ui) en gebruikt Next.js. Ontwikkel deze
+app op een pc; de Raspberry Pi blijft de klimaatcontroller en levert de
+status-API. Stel `TERRARIUM_PI_URL` in op het IP-adres van de Pi voordat je de
+Next.js-server start.
 
 Starten op een machine met Node.js 20+:
 

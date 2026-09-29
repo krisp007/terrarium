@@ -312,15 +312,16 @@ Connected to MQTT broker 192.168.24.166:1883
 
 ## 16. Status UI
 
-De service biedt lokaal een statusdashboard aan op:
+De service biedt een eenvoudige klimaatweergave aan op het lokale scherm:
 
 ```text
-http://192.168.24.166:8080
+http://127.0.0.1:8080
 ```
 
-Het dashboard toont de Pi-service, MQTT-verbinding, ESP32-status en sensoren,
-Moxa DI/DO-feedback en de laatst verzonden commando's. De JSON-status is ook
-beschikbaar via `/api/status` voor een latere UI-uitbreiding.
+De weergave toont de gemiddelde luchttemperatuur en luchtvochtigheid. Chromium
+start in kioskmodus wanneer de Labwc-desktopsessie start. De volledige JSON-
+status voor de Next.js-app op een pc blijft beschikbaar via
+`http://192.168.24.166:8080/api/status`.
 
 De meet- en commandogeschiedenis wordt lokaal opgeslagen in:
 

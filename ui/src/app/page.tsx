@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Activity, Wifi, WifiOff } from "lucide-react";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-type View = "schedule" | "overrides";
+type View = "dashboard" | "schedule" | "overrides";
 type Season = "dry" | "rainy";
 type Profile = {
   season: Season;
@@ -24,6 +26,7 @@ type Profile = {
   rainSimulation: boolean;
 };
 type Actor = { id: string; name: string; type: string; icon: string; mode: "auto" | "manual"; pendingMode?: "auto" | "manual"; state: boolean; currentState: boolean; intensity?: number; overrideExpiresAt?: number };
+type HistoryItem = { timestamp: number; source: string; values: Record<string, unknown> };
 
 const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const shortMonths = months.map((month) => month.slice(0, 3));
@@ -111,8 +114,11 @@ function OverridesView({ actors, setActors }: { actors: Actor[]; setActors: (act
 }
 
 type RuntimeStatus = {
+  service?: { status?: string };
+  mqtt?: { status?: string };
+  esp32?: { status?: string; sensors?: Record<string, number | null> };
+  moxa?: { status?: string; outputs?: Record<string, unknown> };
   commands?: Record<string, Record<string, unknown>>;
-  moxa?: { outputs?: Record<string, unknown> };
 };
 
 function isActive(value: unknown): boolean {
@@ -151,18 +157,65 @@ function currentOverride(actor: Actor, status: RuntimeStatus): { mode: "auto" | 
   return expiry !== undefined ? { mode: "manual", expiresAt: typeof expiry === "number" ? expiry : undefined } : { mode: "auto", expiresAt: undefined };
 }
 
+function TrendGraph({ history }: { history: HistoryItem[] }) {
+  const readings = history.filter((item) => item.source === "esp32_sensors").slice(0, 96).reverse();
+  const chartData = readings.map((item, index) => ({
+    label: new Date(item.timestamp * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+    temperature: Number(item.values.temperature_top),
+    humidity: Number(item.values.humidity_top),
+    index,
+  })).filter((item) => Number.isFinite(item.temperature) || Number.isFinite(item.humidity));
+  return <article className="dashboard-panel trend-graph"><div className="trend-graph-heading"><h2><Activity size={17} /> 24-Hour Trends</h2><span>{readings.length ? `${readings.length} readings` : "Waiting for history"}</span></div><div className="recharts-wrap"><ResponsiveContainer width="100%" height={270}><LineChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}><CartesianGrid stroke="#d8e3ee" strokeDasharray="3 4" /><XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={35} /><YAxis yAxisId="temperature" domain={[15, 40]} tick={{ fontSize: 10, fill: "#ff7627" }} /><YAxis yAxisId="humidity" orientation="right" domain={[40, 100]} tick={{ fontSize: 10, fill: "#3b82f6" }} /><Tooltip /><Legend /><Line yAxisId="temperature" type="monotone" dataKey="temperature" name="Temp (°C)" stroke="#ff7627" dot={false} strokeWidth={2.5} connectNulls /><Line yAxisId="humidity" type="monotone" dataKey="humidity" name="Humidity (%)" stroke="#3b82f6" dot={false} strokeWidth={2.5} connectNulls /></LineChart></ResponsiveContainer></div></article>;
+}
+
+function DashboardView({ actors, status, history }: { actors: Actor[]; status: RuntimeStatus; history: HistoryItem[] }) {
+  const sensors = status.esp32?.sensors ?? {};
+  const outputs = status.moxa?.outputs ?? {};
+  const value = (key: string, fallback = 0) => typeof sensors[key] === "number" ? Number(sensors[key]) : fallback;
+  const temperatures = { right: value("temperature_right", 0), middle: value("temperature_top", 0), left: value("temperature_left", 0) };
+  const averageTemperature = (temperatures.right + temperatures.middle + temperatures.left) / 3;
+  const humiditySensors = { right: value("humidity_right", 0), middle: value("humidity_top", 0), left: value("humidity_left", 0) };
+  const averageHumidity = (humiditySensors.right + humiditySensors.middle + humiditySensors.left) / 3;
+  const soilSensors = { right: value("soil_right", 0), left: value("soil_left", 0) };
+  const averageSoil = (soilSensors.right + soilSensors.left) / 2;
+  const temperatureHistory = history.filter((item) => item.source === "esp32_sensors").sort((left, right) => right.timestamp - left.timestamp);
+  const latestHistory = temperatureHistory[0];
+  const previousHistory = latestHistory ? temperatureHistory.find((item) => latestHistory.timestamp - item.timestamp >= 15 * 60) : undefined;
+  const historyAverage = (item: HistoryItem, keys: string[]) => keys.map((key) => Number(item.values[key])).filter((entry) => Number.isFinite(entry)).reduce((sum, entry, _, values) => sum + entry / values.length, 0);
+  const temperatureDelta = previousHistory && latestHistory ? historyAverage(latestHistory, ["temperature_right", "temperature_top", "temperature_left"]) - historyAverage(previousHistory, ["temperature_right", "temperature_top", "temperature_left"]) : 0;
+  const humidityDelta = previousHistory && latestHistory ? historyAverage(latestHistory, ["humidity_right", "humidity_top", "humidity_left"]) - historyAverage(previousHistory, ["humidity_right", "humidity_top", "humidity_left"]) : 0;
+  const soilDelta = previousHistory && latestHistory ? historyAverage(latestHistory, ["soil_right", "soil_left"]) - historyAverage(previousHistory, ["soil_right", "soil_left"]) : 0;
+  const temperatureTrend = temperatureDelta > 0.15 ? "Up" : temperatureDelta < -0.15 ? "Down" : "Stable";
+  const humidityTrend = humidityDelta > 0.3 ? "Up" : humidityDelta < -0.3 ? "Down" : "Stable";
+  const soilTrend = soilDelta > 0.3 ? "Up" : soilDelta < -0.3 ? "Down" : "Stable";
+  const temperatureZone = averageTemperature < 24 ? "cold" : averageTemperature > 27 ? "hot" : "zone";
+  const humidityZone = averageHumidity < 85 ? "cold" : averageHumidity > 95 ? "hot" : "zone";
+  const soilZone = averageSoil < 65 ? "cold" : averageSoil > 80 ? "hot" : "zone";
+  const active = actors.filter((actor) => actor.currentState).length;
+  const on = (key: string) => isActive(outputs[key] ?? outputs[`DO@DO-${key.slice(2).padStart(2, "0")}`]);
+  const zoneLabel = (zone: string) => zone === "cold" ? "Too low" : zone === "hot" ? "Too high" : "In zone";
+  const sensorTriplet = (sensors: { right: number; middle: number; left: number }) => <div className="temperature-sensors"><span><b>R</b>{sensors.right.toFixed(1)}</span><span><b>M</b>{sensors.middle.toFixed(1)}</span><span><b>L</b>{sensors.left.toFixed(1)}</span></div>;
+  const health = (online: boolean, label: string, value: string) => { const StatusIcon = online ? Wifi : WifiOff; return <span className={`status-pill ${online ? "online" : "offline"}`}><StatusIcon size={14} /> {label} <b>{value}</b></span>; };
+  return <div className="dashboard-view"><div className="dashboard-status"><span className="section-kicker">System health</span><div className="health-pills">{health(status.esp32?.status === "online", "ESP32 Sensor", status.esp32?.status === "online" ? "Online" : "Offline")}{health(status.moxa?.status === "online", "Moxa 4510", status.moxa?.status === "online" ? "Online" : "Offline")}{health(status.service?.status === "online", "Pi service", status.service?.status === "online" ? "Online" : "Offline")}{health(status.mqtt?.status === "connected", "MQTT broker", status.mqtt?.status === "connected" ? "Connected" : "Offline")}</div></div><section className="dashboard-metrics"><article className={`dashboard-metric temp temperature-card-${temperatureZone}`}><div className="temperature-heading"><span>Temperature</span><b>{temperatureTrend}</b></div><strong>{averageTemperature.toFixed(1)}°C</strong>{sensorTriplet(temperatures)}<div className="temperature-target"><span>Target: 24 - 27°C</span><b>{temperatureTrend}</b></div><small className="temperature-zone-label">{zoneLabel(temperatureZone)}</small><div className="temperature-bar"><i className="cold" /><i className="zone" /><i className="hot" /></div></article><article className={`dashboard-metric humidity temperature-card-${humidityZone}`}><div className="temperature-heading"><span>Humidity</span><b>{humidityTrend}</b></div><strong>{averageHumidity.toFixed(1)}%</strong>{sensorTriplet(humiditySensors)}<div className="temperature-target"><span>Target: 85 - 95%</span><b>{humidityTrend}</b></div><small className="temperature-zone-label">{zoneLabel(humidityZone)}</small><div className="temperature-bar"><i className="cold" /><i className="zone" /><i className="hot" /></div></article><article className={`dashboard-metric soil temperature-card-${soilZone}`}><div className="temperature-heading"><span>Soil moisture</span><b>{soilTrend}</b></div><strong>{averageSoil.toFixed(1)}%</strong><div className="temperature-sensors"><span><b>R</b>{soilSensors.right.toFixed(1)}</span><span><b>L</b>{soilSensors.left.toFixed(1)}</span></div><div className="temperature-target"><span>Target: 65 - 80%</span><b>{soilTrend}</b></div><small className="temperature-zone-label">{zoneLabel(soilZone)}</small><div className="temperature-bar"><i className="cold" /><i className="zone" /><i className="hot" /></div></article><article className="dashboard-metric season"><span>Climate profile</span><strong>Rainy Season</strong><small>Current schedule</small></article></section><TrendGraph history={history} /><section className="dashboard-grid"><article className="dashboard-panel"><h2>Active actuators</h2><div className="actuator-summary"><strong>{active}</strong><span>active now</span></div><div className="health-row"><span>Fans</span><b>{actors.filter((actor) => actor.type === "Fan" && actor.currentState).length}/6</b></div><div className="health-row"><span>LEDs</span><b>{actors.filter((actor) => actor.type === "LED" && actor.currentState).length}/4</b></div><div className="health-row"><span>Heat lamp</span><b>{on("do6") ? "ON" : "OFF"}</b></div></article><article className="dashboard-panel dashboard-wide"><h2>Current outputs</h2><div className="output-grid">{[{ key: "do0", label: "LED 1 power" }, { key: "do1", label: "LED 2 power" }, { key: "do2", label: "LED 3 power" }, { key: "do3", label: "LED 4 power" }, { key: "do4", label: "Irrigation" }, { key: "do5", label: "Mist maker" }, { key: "do6", label: "Heat lamp" }, { key: "do7", label: "Waterfall" }].map(({ key, label }) => <div className="output-chip" key={key}><i className={on(key) ? "on" : ""} /><span>{label}</span><b>{on(key) ? "ON" : "OFF"}</b></div>)}</div></article></section></div>;
+}
+
 export default function Home() {
-  const [view, setView] = useState<View>("schedule");
+  const [view, setView] = useState<View>("dashboard");
   const [month, setMonth] = useState(new Date().getMonth());
   const [actors, setActors] = useState<Actor[]>(initialActors);
   const [now, setNow] = useState<Date | null>(null);
+  const [status, setStatus] = useState<RuntimeStatus>({});
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   useEffect(() => { setNow(new Date()); const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     const refreshActors = async () => {
       try {
-        const response = await fetch("/api/status", { cache: "no-store" });
-        if (!response.ok) return;
-        const status = await response.json() as RuntimeStatus;
+        const [statusResponse, historyResponse] = await Promise.all([fetch("/api/status", { cache: "no-store" }), fetch("/api/history", { cache: "no-store" })]);
+        if (!statusResponse.ok) return;
+        const status = await statusResponse.json() as RuntimeStatus;
+        const historyPayload = historyResponse.ok ? await historyResponse.json() : [];
+        setHistory(Array.isArray(historyPayload) ? historyPayload : []);
+        setStatus(status);
         setActors((current) => current.map((actor) => {
           const override = currentOverride(actor, status);
           if (actor.pendingMode) {
@@ -179,5 +232,7 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
   const clockText = now ? now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "--:--";
-  return <main className="shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">◒</span><div><h1>Terrarium</h1><p>Climate Control</p></div></div><nav className="nav"><button className={view === "schedule" ? "active" : ""} onClick={() => setView("schedule")}>▦ <span>Seasonal Schedule</span></button><button className={view === "overrides" ? "active" : ""} onClick={() => setView("overrides")}>⚙ <span>Actor Overrides</span>{actors.some((actor) => actor.mode === "manual") && <b>{actors.filter((actor) => actor.mode === "manual").length}</b>}</button></nav><div className="sidebar-footer"><span className="live-dot" /> System online<br /><small>Last sync {clockText}</small></div></aside><section className="main"><header className="topbar"><div><span className="eyebrow">Terrarium control center</span><h1>{view === "schedule" ? "Yearly climate planning" : "Manual actor control"}</h1><p>{view === "schedule" ? "Configure every month to match the seasonal rhythm." : "Override fans, lighting, pumps and climate actors individually."}</p></div><time className="clock">{clockText}<small> Local time</small></time></header>{view === "schedule" ? <ScheduleView month={month} setMonth={setMonth} /> : <OverridesView actors={actors} setActors={setActors} />}</section></main>;
+  const pageTitle = view === "dashboard" ? "Live dashboard" : view === "schedule" ? "Yearly climate planning" : "Manual actor control";
+  const pageDescription = view === "dashboard" ? "Real-time terrarium monitoring and actuator status." : view === "schedule" ? "Configure every month to match the seasonal rhythm." : "Override fans, lighting, pumps and climate actors individually.";
+  return <main className="shell"><aside className="sidebar"><div className="brand"><span className="brand-mark">◒</span><div><h1>Terrarium</h1><p>Climate Control</p></div></div><nav className="nav"><button className={view === "dashboard" ? "active" : ""} onClick={() => setView("dashboard")}>⌂ <span>Dashboard</span></button><button className={view === "schedule" ? "active" : ""} onClick={() => setView("schedule")}>▦ <span>Seasonal Schedule</span></button><button className={view === "overrides" ? "active" : ""} onClick={() => setView("overrides")}>⚙ <span>Actor Overrides</span>{actors.some((actor) => actor.mode === "manual") && <b>{actors.filter((actor) => actor.mode === "manual").length}</b>}</button></nav><div className="sidebar-footer"><span className="live-dot" /> System online<br /><small>Last sync {clockText}</small></div></aside><section className="main"><header className="topbar"><div><span className="eyebrow">Terrarium control center</span><h1>{pageTitle}</h1><p>{pageDescription}</p></div><time className="clock">{clockText}<small> Local time</small></time></header>{view === "dashboard" ? <DashboardView actors={actors} status={status} history={history} /> : view === "schedule" ? <ScheduleView month={month} setMonth={setMonth} /> : <OverridesView actors={actors} setActors={setActors} />}</section></main>;
 }

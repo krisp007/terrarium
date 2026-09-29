@@ -9,6 +9,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from typing import Any, Dict, Optional
 
 
@@ -110,22 +111,76 @@ class StatusStore:
 
 
 HTML = """<!doctype html>
-<html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Terrarium status</title><style>
-body{font:16px system-ui,sans-serif;background:#eef2ed;color:#18221c;margin:0;padding:24px}
-main{max-width:1100px;margin:auto}h1{margin-top:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
-section{background:white;border:1px solid #cbd6cc;border-radius:8px;padding:16px;box-shadow:0 2px 8px #18221c12}
-h2{font-size:1.05rem;margin:0 0 12px}.ok{color:#137333}.bad{color:#b3261e}dl{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0}dt{color:#5d6b61}dd{margin:0;text-align:right;font-weight:600;overflow-wrap:anywhere}
-small{color:#5d6b61}pre{white-space:pre-wrap;margin:0;font-size:.82rem}
-</style></head><body><main><h1>Terrarium status</h1><small id="updated">Laden...</small><div class="grid" id="cards"></div></main>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Terrarium climate</title>
+<style>
+:root{color-scheme:dark;background:#101b18;color:#f2f5ef;font-family:Georgia,serif}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:36px;background:#101b18}
+main{width:min(1120px,100%)}
+header{display:flex;justify-content:space-between;align-items:end;gap:24px;margin-bottom:28px}
+h1{font-size:32px;font-weight:400;margin:0}
+.eyebrow{font:600 13px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#9eafa5;margin-bottom:10px}
+#sensor-state{font:16px Arial,sans-serif;color:#9eafa5;text-align:right}
+#sensor-state.offline{color:#ff8b76}
+.readings{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+article{min-height:330px;padding:32px;background:#1c3029;border:1px solid #385046;border-radius:8px;display:flex;flex-direction:column;justify-content:space-between}
+article.humidity{background:#203039;border-color:#405764}
+h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
+.value{font:400 112px Georgia,serif;line-height:1;white-space:nowrap;color:#f2cd73}
+.humidity .value{color:#78d5ce}
+.unit{font:400 38px Arial,sans-serif;margin-left:8px;color:#d4ddd7}
+@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}}
+</style>
+</head>
+<body>
+<main>
+<header><div><div class="eyebrow">Terrarium climate</div><h1>Live readings</h1></div><div id="sensor-state" role="status" aria-live="polite">Waiting for sensor data</div></header>
+<div class="readings">
+<article><h2>Air temperature</h2><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div></article>
+<article class="humidity"><h2>Humidity</h2><div class="value"><span id="humidity">--</span><span class="unit">%</span></div></article>
+</div>
+</main>
 <script>
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function entries(obj){return Object.entries(obj||{}).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(typeof v==='object'?JSON.stringify(v):v)}</dd>`).join('')}
-function card(title,data){let status=data.status||'';let cls=['online','connected','ok','normal'].includes(status)?'ok':(['offline','disconnected','alarm'].includes(status)?'bad':'');return `<section><h2>${esc(title)} <span class="${cls}">${esc(status)}</span></h2><dl>${entries(data)}</dl></section>`}
-function historyCard(data){return `<section><h2>Historie</h2><pre>${esc(data.slice(0,20).map(x=>new Date(x.timestamp*1000).toLocaleString()+' '+x.source+' '+JSON.stringify(x.values)).join('\\n'))}</pre></section>`}
-async function refresh(){try{let [statusResponse,historyResponse]=await Promise.all([fetch('/api/status',{cache:'no-store'}),fetch('/api/history',{cache:'no-store'})]);let d=await statusResponse.json();let h=await historyResponse.json();document.querySelector('#cards').innerHTML=card('Pi service',d.service)+card('MQTT',d.mqtt)+card('ESP32',d.esp32)+card('Moxa',d.moxa)+card("Laatste commando's",d.commands)+historyCard(h);document.querySelector('#updated').textContent='Bijgewerkt: '+new Date().toLocaleTimeString();}catch(e){document.querySelector('#updated').textContent='Dashboard niet bereikbaar';}}
-refresh();setInterval(refresh,3000);
-</script></body></html>"""
+const temperature=document.querySelector('#temperature');
+const humidity=document.querySelector('#humidity');
+const sensorState=document.querySelector('#sensor-state');
+function averageReading(sensors,prefix){
+ const readings=Object.entries(sensors||{}).filter(([name,value])=>name.startsWith(prefix)&&typeof value==='number'&&Number.isFinite(value)).map(([,value])=>value);
+ return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
+}
+function showReading(element,value){element.textContent=value===null?'--':value.toFixed(1);}
+async function refresh(){
+ try{
+  const response=await fetch('/api/status',{cache:'no-store'});
+  if(!response.ok)throw new Error('Status request failed');
+  const status=await response.json();
+  const sensors=status.esp32?.sensors||{};
+  const temperatureValue=averageReading(sensors,'temperature_');
+  const humidityValue=averageReading(sensors,'humidity_');
+  showReading(temperature,temperatureValue);
+  showReading(humidity,humidityValue);
+  const hasReadings=temperatureValue!==null||humidityValue!==null;
+  const lastSeen=Number(status.esp32?.last_seen);
+  const stale=!Number.isFinite(lastSeen)||Date.now()/1000-lastSeen>60;
+  sensorState.classList.toggle('offline',!hasReadings||stale);
+  sensorState.textContent=!hasReadings?'Waiting for sensor data':stale?'Sensor data is stale':'Updated '+new Date(lastSeen*1000).toLocaleTimeString();
+ }catch{
+  showReading(temperature,null);
+  showReading(humidity,null);
+  sensorState.classList.add('offline');
+  sensorState.textContent='Pi status unavailable';
+ }
+}
+refresh();
+window.setInterval(refresh,3000);
+</script>
+</body>
+</html>"""
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -133,16 +188,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
     override_callback: Any = None
 
     def do_GET(self) -> None:
-        if self.path.startswith("/api/history"):
-            body = json.dumps(self.store.history()).encode("utf-8")
+        parsed_path = urlparse(self.path)
+        query = parse_qs(parsed_path.query)
+        if parsed_path.path == "/api/history":
+            limit = int(query.get("limit", ["100"])[0])
+            body = json.dumps(self.store.history(limit=limit)).encode("utf-8")
             content_type = "application/json"
-        elif self.path == "/api/schedule":
+        elif parsed_path.path == "/api/schedule":
             body = json.dumps(self.store.schedule()).encode("utf-8")
             content_type = "application/json"
-        elif self.path == "/api/status":
+        elif parsed_path.path == "/api/status":
             body = json.dumps(self.store.snapshot()).encode("utf-8")
             content_type = "application/json"
-        elif self.path == "/":
+        elif parsed_path.path == "/":
             body = HTML.encode("utf-8")
             content_type = "text/html; charset=utf-8"
         else:
