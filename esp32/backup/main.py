@@ -35,8 +35,23 @@ def send_heartbeat(client):
 # --------------------------------------------------
 # WiFi + MQTT
 # --------------------------------------------------
-connect_to_wifi()
-client = connect_mqtt()
+client = None
+
+
+def connect_to_raspberry_pi():
+    global client
+
+    if client is not None:
+        return True
+
+    if not connect_to_wifi():
+        return False
+
+    client = connect_mqtt()
+    return client is not None
+
+
+connect_to_raspberry_pi()
 
 
 # --------------------------------------------------
@@ -92,11 +107,15 @@ last_heartbeat = 0
 
 while True:
 
+    # Retry the network and Raspberry Pi broker when the connection is down.
+    if client is None:
+        connect_to_raspberry_pi()
+
     # ------------------------------
     # Heartbeat every minute
     # ------------------------------
     try:
-        if time.time() - last_heartbeat >= 60:
+        if client is not None and time.time() - last_heartbeat >= 60:
             send_heartbeat(client)
             last_heartbeat = time.time()
     except Exception as e:
@@ -209,23 +228,19 @@ while True:
     # ------------------------------
     # MQTT Publish
     # ------------------------------
-    try:
-        client.publish(
-            "esp32/sensors",
-            json.dumps(payload)
-        )
-
-    except Exception as e:
-        print("MQTT Error:", e)
-
+    if client is None:
+        print("MQTT unavailable; skipping sensor publish")
+    else:
         try:
-            client = connect_mqtt()
-            print("MQTT reconnected")
-        except Exception as reconnect_error:
-            print(
-                "MQTT reconnect failed:",
-                reconnect_error
+            client.publish(
+                "esp32/sensors",
+                json.dumps(payload)
             )
+
+        except Exception as e:
+            print("MQTT Error:", e)
+            client = None
+            connect_to_raspberry_pi()
 
     # ------------------------------
     # Wait 2 minutes

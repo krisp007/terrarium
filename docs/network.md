@@ -108,6 +108,10 @@ MQTT Broker:
 192.168.24.166
 ```
 
+After joining WiFi, the ESP32 connects to the Raspberry Pi's MQTT broker using
+the server configured in `esp32/backup/config.json`. If WiFi or MQTT is
+unavailable, it retries on the next main-loop cycle.
+
 ## Moxa ioThinx 4510
 
 MQTT Broker:
