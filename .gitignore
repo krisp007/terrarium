@@ -1,0 +1,17 @@
+terrarium_history.db
+__pycache__/
+*.py[cod]
+
+# Next.js frontend runtime files
+ui/node_modules/
+ui/.next/
+ui/.env.local
+ui/.env*.local
+
+# Azure Functions deployment dependencies
+api/.python_packages/
+
+# Local environment configuration
+.env
+.env.*
+!.env.example
