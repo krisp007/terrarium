@@ -1,0 +1,678 @@
+"""Pi-side terrarium control logic.
+
+This module contains the core rules used by the Raspberry Pi to translate
+MQTT status messages from the ESP32 and Moxa into safety actions and fan
+control commands.
+"""
+
+from __future__ import annotations
+
+import random
+import time
+from typing import Callable, Dict, Optional
+
+
+DEFAULT_FAN_THRESHOLDS = {
+    "low": 22.0,
+    "medium": 24.5,
+    "high": 27.0,
+    "max_safe": 30.0,
+}
+DEFAULT_FAN_LEVELS = {
+    "off": 0,
+    "low": 30,
+    "medium": 50,
+    "high": 80,
+    "max": 100,
+}
+DEFAULT_HEATER_THRESHOLDS = {
+    "temperature_too_low_c": 18.0,
+    "temperature_too_high_c": 30.5,
+}
+DEFAULT_RAINSTORM = {
+    "enabled": True,
+    "chance_percent": 5.0,
+    "duration_minutes": 2,
+    "cooldown_minutes": 30,
+}
+DEFAULT_MISTMAKER_SETTINGS = {
+    "enabled": True,
+    "auto_mode": True,
+    "max_runtime_minutes": 10,
+    "pause_minutes": 8,
+}
+DEFAULT_IRRIGATION_SETTINGS = {
+    "enabled": True,
+    "auto_mode": True,
+    "cycle_minutes": 20,
+    "duration_seconds": 25,
+    "max_runtime_minutes": 10,
+}
+# Reservoir floats without wiring yet; assume filled until the hardware is connected.
+DEFAULT_FLOAT_OVERRIDES: Dict[str, bool] = {"di0": True, "di1": True}
+
+
+class TerrariumLogic:
+    """Evaluate safety and climate rules for the terrarium."""
+
+    def __init__(self, settings: Optional[Dict[str, object]] = None) -> None:
+        self.sensor_state: Dict[str, float] = {}
+        self.moxa_state: Optional[Dict[str, object]] = None
+        self.last_heartbeat: Optional[int] = None
+        self.heartbeat_timeout_seconds = 180
+        self.mistmaker_on_humidity = 82.0
+        self.mistmaker_off_humidity = 90.0
+        self.irrigation_on_soil = 35.0
+        self.irrigation_off_soil = 55.0
+        self.fan_thresholds: Dict[str, float] = dict(DEFAULT_FAN_THRESHOLDS)
+        self.fan_levels: Dict[str, int] = dict(DEFAULT_FAN_LEVELS)
+        self.heater_thresholds: Dict[str, float] = dict(DEFAULT_HEATER_THRESHOLDS)
+        self.rainstorm: Dict[str, object] = dict(DEFAULT_RAINSTORM)
+        self.rainstorm_until = 0.0
+        self.rainstorm_cooldown_until = 0.0
+        self.random_source: Callable[[], float] = random.random
+        self.minimum_airflow_percent = 30
+        self.minimum_airflow_interval_seconds = 60
+        self.manual_fan_overrides: Dict[str, Dict[str, object]] = {}
+        self.manual_led_overrides: Dict[str, Dict[str, object]] = {}
+        self.mistmaker_settings: Dict[str, object] = dict(DEFAULT_MISTMAKER_SETTINGS)
+        self.irrigation_settings: Dict[str, object] = dict(DEFAULT_IRRIGATION_SETTINGS)
+        self.float_overrides: Dict[str, bool] = dict(DEFAULT_FLOAT_OVERRIDES)
+        self.mistmaker_run_until = 0.0
+        self.mistmaker_pause_until = 0.0
+        self.irrigation_run_until = 0.0
+        self.irrigation_next_cycle = 0.0
+        self.ro_filling = False
+        if settings is not None:
+            self.update_settings(settings)
+
+    def update_settings(self, settings: Dict[str, object]) -> None:
+        """Apply editable settings without changing the rule engine."""
+        fan_control = settings.get("fan_control", {})
+        if isinstance(fan_control, dict):
+            thresholds = fan_control.get("temp_thresholds_c", {})
+            levels = fan_control.get("fan_levels_percent", {})
+            if isinstance(thresholds, dict):
+                for key in DEFAULT_FAN_THRESHOLDS:
+                    value = thresholds.get(key)
+                    if isinstance(value, (int, float)):
+                        self.fan_thresholds[key] = float(value)
+            if isinstance(levels, dict):
+                for key in DEFAULT_FAN_LEVELS:
+                    value = levels.get(key)
+                    if isinstance(value, (int, float)):
+                        self.fan_levels[key] = int(value)
+
+        safety = settings.get("safety", {})
+        if isinstance(safety, dict):
+            for key in DEFAULT_HEATER_THRESHOLDS:
+                value = safety.get(key)
+                if isinstance(value, (int, float)):
+                    self.heater_thresholds[key] = float(value)
+            float_overrides = safety.get("float_overrides")
+            if isinstance(float_overrides, dict):
+                for key, value in float_overrides.items():
+                    if isinstance(value, bool):
+                        self.float_overrides[key] = value
+                    elif value is None:
+                        self.float_overrides.pop(key, None)
+
+        mistmaker_settings = settings.get("mistmaker", {})
+        if isinstance(mistmaker_settings, dict):
+            for key in ("enabled", "auto_mode"):
+                value = mistmaker_settings.get(key)
+                if isinstance(value, bool):
+                    self.mistmaker_settings[key] = value
+            for key in ("max_runtime_minutes", "pause_minutes"):
+                value = mistmaker_settings.get(key)
+                if isinstance(value, (int, float)):
+                    self.mistmaker_settings[key] = value
+
+        irrigation_settings = settings.get("irrigation", {})
+        if isinstance(irrigation_settings, dict):
+            for key in ("enabled", "auto_mode"):
+                value = irrigation_settings.get(key)
+                if isinstance(value, bool):
+                    self.irrigation_settings[key] = value
+            for key in ("cycle_minutes", "duration_seconds", "max_runtime_minutes"):
+                value = irrigation_settings.get(key)
+                if isinstance(value, (int, float)):
+                    self.irrigation_settings[key] = value
+
+        seasons = settings.get("seasons", {})
+        if isinstance(seasons, dict):
+            rainy = seasons.get("rainy", {})
+            if isinstance(rainy, dict):
+                rainstorm = rainy.get("rainstorm", {})
+                if isinstance(rainstorm, dict):
+                    for key, default in DEFAULT_RAINSTORM.items():
+                        value = rainstorm.get(key)
+                        if isinstance(value, bool) and isinstance(default, bool):
+                            self.rainstorm[key] = value
+                        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                            self.rainstorm[key] = value
+
+    def update_sensor_state(self, payload: Dict[str, object]) -> Dict[str, object]:
+        """Store the latest sensor measurements."""
+        for key, value in payload.items():
+            if isinstance(value, (int, float)):
+                self.sensor_state[key] = float(value)
+        return dict(self.sensor_state)
+
+    def _di_value(self, key: str) -> Optional[bool]:
+        """Read a Moxa digital input, applying overrides for floats not wired yet."""
+        if key in self.float_overrides:
+            return self.float_overrides[key]
+        if self.moxa_state is None:
+            return None
+        return self.moxa_state.get(key)
+
+    def evaluate_ro_command(self) -> Dict[str, object]:
+        """Fill the RO reservoir via DO15 using hysteresis between the min/max floats."""
+        if self.moxa_state is None:
+            self.ro_filling = False
+            return {"do15": "OFF", "reason": "moxa_status_unknown"}
+
+        if self._di_value("di2") is True or self.moxa_state.get("alarm") is True:
+            self.ro_filling = False
+            return {"do15": "OFF", "reason": "leak_detected"}
+
+        level_above_min = self._di_value("di3")
+        level_at_max = self._di_value("di4")
+
+        if level_at_max is True:
+            self.ro_filling = False
+        elif level_above_min is False:
+            self.ro_filling = True
+
+        return {"do15": "ON" if self.ro_filling else "OFF", "reason": "filling" if self.ro_filling else "idle"}
+
+    def evaluate_moxa_state(self, payload: Dict[str, object]) -> Dict[str, object]:
+        """Apply safety rules from the Moxa digital inputs."""
+        self.moxa_state = dict(payload)
+        if self._di_value("di2") is True or payload.get("alarm") is True:
+            self.mistmaker_run_until = 0.0
+            self.irrigation_run_until = 0.0
+            self.ro_filling = False
+            return {
+                "mistmaker": "OFF",
+                "beregening": "OFF",
+                "do4": "OFF",
+                "do5": "OFF",
+                "do6": "OFF",
+                "do15": "OFF",
+                "alarm": True,
+                "reason": "leak_detected",
+            }
+
+        mistmaker = "OFF" if self._di_value("di0") is False else "ON"
+        irrigation = "OFF" if self._di_value("di1") is False else "ON"
+        reservoir_alarm = mistmaker == "OFF" or irrigation == "OFF"
+
+        return {
+            "mistmaker": mistmaker,
+            "beregening": irrigation,
+            "do4": irrigation,
+            "do5": mistmaker,
+            "do6": self.evaluate_heater_command()["state"],
+            "do15": self.evaluate_ro_command()["do15"],
+            "alarm": reservoir_alarm,
+            "reason": "reservoir_low" if reservoir_alarm else "normal",
+        }
+
+    def _evaluate_mist_cycle(self, humidity: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
+        """Run the mistmaker for max_runtime_minutes, then pause for pause_minutes."""
+        if not reservoir_ok or not self.mistmaker_settings.get("enabled", True):
+            self.mistmaker_run_until = 0.0
+            return "OFF", "reservoir_low" if not reservoir_ok else "disabled"
+        if rainstorm_active:
+            return "ON", "rainstorm"
+        if humidity is not None and humidity >= self.mistmaker_off_humidity:
+            self.mistmaker_run_until = 0.0
+            return "OFF", "humidity_ok"
+        if now < self.mistmaker_run_until:
+            return "ON", "cycle_running"
+        if now >= self.mistmaker_pause_until and (humidity is None or humidity < self.mistmaker_on_humidity):
+            runtime = max(0.0, float(self.mistmaker_settings.get("max_runtime_minutes", 30))) * 60
+            pause = max(0.0, float(self.mistmaker_settings.get("pause_minutes", 8))) * 60
+            self.mistmaker_run_until = now + runtime
+            self.mistmaker_pause_until = self.mistmaker_run_until + pause
+            return "ON", "cycle_start"
+        return "OFF", "cycle_pause"
+
+    def _evaluate_irrigation_cycle(self, soil: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
+        """Run irrigation for duration_seconds every cycle_minutes while soil is too low."""
+        if not reservoir_ok or not self.irrigation_settings.get("enabled", True):
+            self.irrigation_run_until = 0.0
+            return "OFF", "reservoir_low" if not reservoir_ok else "disabled"
+        if rainstorm_active:
+            return "ON", "rainstorm"
+        if soil is not None and soil >= self.irrigation_off_soil:
+            self.irrigation_run_until = 0.0
+            return "OFF", "soil_ok"
+        if now < self.irrigation_run_until:
+            return "ON", "cycle_running"
+        if now >= self.irrigation_next_cycle and (soil is None or soil < self.irrigation_on_soil):
+            duration = max(0.0, float(self.irrigation_settings.get("duration_seconds", 25)))
+            cycle = max(0.0, float(self.irrigation_settings.get("cycle_minutes", 20))) * 60
+            self.irrigation_run_until = now + duration
+            self.irrigation_next_cycle = now + cycle
+            return "ON", "cycle_start"
+        return "OFF", "cycle_wait"
+
+    def evaluate_moxa_outputs(self, now: Optional[float] = None) -> Dict[str, object]:
+        """Translate the latest sensors to Moxa DO4/DO5/DO15 commands."""
+        current_time = time.time() if now is None else now
+        humidity_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("humidity_")
+        ]
+        soil_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("soil_")
+        ]
+
+        if self.moxa_state is not None and (
+            self._di_value("di2") is True or self.moxa_state.get("alarm") is True
+        ):
+            self.mistmaker_run_until = 0.0
+            self.irrigation_run_until = 0.0
+            self.ro_filling = False
+            return {
+                "do4": "OFF",
+                "do5": "OFF",
+                "do6": "OFF",
+                "do15": "OFF",
+                "mistmaker": "OFF",
+                "beregening": "OFF",
+                "alarm": True,
+                "reason": "leak_detected",
+            }
+
+        if self.moxa_state is None:
+            return {
+                "do4": "OFF",
+                "do5": "OFF",
+                "do6": self.evaluate_heater_command()["state"],
+                "do15": "OFF",
+                "mistmaker": "OFF",
+                "beregening": "OFF",
+                "alarm": True,
+                "reason": "moxa_status_unknown",
+            }
+
+        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
+        soil = sum(soil_values) / len(soil_values) if soil_values else None
+        mist_reservoir_ok = self._di_value("di0") is not False
+        irrigation_reservoir_ok = self._di_value("di1") is not False
+
+        rainstorm = self.evaluate_rainstorm()
+        mistmaker, _mist_reason = self._evaluate_mist_cycle(humidity, mist_reservoir_ok, rainstorm["active"], current_time)
+        irrigation, _irrigation_reason = self._evaluate_irrigation_cycle(soil, irrigation_reservoir_ok, rainstorm["active"], current_time)
+
+        reservoir_alarm = not mist_reservoir_ok or not irrigation_reservoir_ok
+
+        return {
+            "do4": irrigation,
+            "do5": mistmaker,
+            "do6": self.evaluate_heater_command()["state"],
+            "do15": self.evaluate_ro_command()["do15"],
+            "mistmaker": mistmaker,
+            "beregening": irrigation,
+            "alarm": reservoir_alarm,
+            "reason": (
+                "reservoir_low" if reservoir_alarm
+                else "rainstorm" if rainstorm["active"]
+                else "sensor_control"
+            ),
+        }
+
+    def evaluate_rainstorm(
+        self,
+        season: str = "rainy",
+        now: Optional[float] = None,
+        random_value: Optional[float] = None,
+    ) -> Dict[str, object]:
+        """Start a random short rainstorm during the configured rainy season."""
+        import time
+
+        current_time = time.time() if now is None else now
+        inactive = {"active": False, "do4": "OFF", "do5": "OFF", "reason": "inactive"}
+        if season != "rainy" or not self.rainstorm.get("enabled", False):
+            return inactive
+        if self.moxa_state is not None and (
+            self.moxa_state.get("di2") is True
+            or self.moxa_state.get("alarm") is True
+            or self.moxa_state.get("di0") is False
+            or self.moxa_state.get("di1") is False
+        ):
+            return {**inactive, "reason": "safety_block"}
+        if current_time < self.rainstorm_until:
+            return {"active": True, "do4": "ON", "do5": "ON", "reason": "rainstorm"}
+        if current_time < self.rainstorm_cooldown_until:
+            return {**inactive, "reason": "cooldown"}
+
+        chance = float(self.rainstorm.get("chance_percent", 0.0)) / 100.0
+        if (self.random_source() if random_value is None else random_value) >= chance:
+            return inactive
+
+        duration = max(1.0, float(self.rainstorm.get("duration_minutes", 2))) * 60
+        cooldown = max(0.0, float(self.rainstorm.get("cooldown_minutes", 30))) * 60
+        self.rainstorm_until = current_time + duration
+        self.rainstorm_cooldown_until = self.rainstorm_until + cooldown
+        return {"active": True, "do4": "ON", "do5": "ON", "reason": "rainstorm"}
+
+    def evaluate_heater_command(self) -> Dict[str, object]:
+        """Switch the Moxa warmtelamp on only below the configured minimum."""
+        temperatures = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("temperature")
+        ]
+        if not temperatures:
+            return {"state": "OFF", "do6": "OFF", "reason": "no_temperature"}
+
+        average_temperature = sum(temperatures) / len(temperatures)
+        if average_temperature < self.heater_thresholds["temperature_too_low_c"]:
+            state = "ON"
+            reason = "temperature_too_low"
+        elif average_temperature >= self.heater_thresholds["temperature_too_high_c"]:
+            state = "OFF"
+            reason = "temperature_too_high"
+        else:
+            state = "OFF"
+            reason = "temperature_normal"
+
+        if self.moxa_state is not None and (
+            self.moxa_state.get("di2") is True or self.moxa_state.get("alarm") is True
+        ):
+            state = "OFF"
+            reason = "safety_alarm"
+
+        return {"state": state, "do6": state, "reason": reason}
+
+    def evaluate_fan_command(self, now: Optional[float] = None) -> Dict[str, object]:
+        """Compute a safe fan level from the current average temperature."""
+        current_time = time.time() if now is None else now
+        active_minimum_fan = 1 if int(current_time / self.minimum_airflow_interval_seconds) % 2 == 0 else 6
+        if not self.sensor_state:
+            level = 0
+            return self._apply_fan_overrides(self._fan_command(level, active_minimum_fan), current_time)
+
+        temps = [
+            float(value)
+            for key, value in self.sensor_state.items()
+            if key.startswith("temperature") and isinstance(value, (int, float))
+        ]
+
+        if not temps:
+            return self._apply_fan_overrides(self._fan_command(0, active_minimum_fan), current_time)
+
+        average_temp = sum(temps) / len(temps)
+
+        if average_temp < self.fan_thresholds["low"]:
+            level = self.fan_levels["off"]
+        elif average_temp < self.fan_thresholds["medium"]:
+            level = self.fan_levels["low"]
+        elif average_temp < self.fan_thresholds["high"]:
+            level = self.fan_levels["medium"]
+        elif average_temp < self.fan_thresholds["max_safe"]:
+            level = self.fan_levels["high"]
+        else:
+            level = self.fan_levels["max"]
+
+        return self._apply_fan_overrides(self._fan_command(int(level), active_minimum_fan), current_time)
+
+    def set_fan_override(
+        self,
+        channels: Dict[str, int],
+        level: int = 0,
+        duration_minutes: Optional[float] = None,
+        fan_name: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Hold one or more manual fan levels until they expire or Auto is restored."""
+        expires_at = None
+        if duration_minutes is not None:
+            expires_at = time.time() + max(0.0, float(duration_minutes)) * 60
+        targets = [fan_name] if fan_name else [f"fan{number}" for number in range(1, 7)]
+        for target in targets:
+            self.manual_fan_overrides[target] = {"level": max(0, min(100, int(channels.get(target, level)))), "expires_at": expires_at}
+        return self.evaluate_fan_command()
+
+    def clear_fan_override(self, fan_name: Optional[str] = None) -> None:
+        """Return fan control to the automatic climate rules."""
+        if fan_name:
+            self.manual_fan_overrides.pop(fan_name, None)
+        else:
+            self.manual_fan_overrides.clear()
+
+    def fan_override_expiry(self, fan_name: str) -> Optional[float]:
+        override = self.manual_fan_overrides.get(fan_name)
+        return None if override is None else override.get("expires_at")
+
+    def set_led_override(self, led_name: str, brightness: int, duration_minutes: Optional[float] = None) -> None:
+        """Hold one LED brightness until it expires or Auto is restored."""
+        expires_at = None
+        if duration_minutes is not None:
+            expires_at = time.time() + max(0.0, float(duration_minutes)) * 60
+        self.manual_led_overrides[led_name] = {
+            "brightness": max(0, min(100, int(brightness))),
+            "expires_at": expires_at,
+        }
+
+    def clear_led_override(self, led_name: str) -> None:
+        """Return one LED to its automatic schedule."""
+        self.manual_led_overrides.pop(led_name, None)
+
+    def led_override_expiry(self, led_name: str) -> Optional[float]:
+        override = self.manual_led_overrides.get(led_name)
+        return None if override is None else override.get("expires_at")
+
+    def _apply_led_overrides(self, leds: Dict[str, int]) -> Dict[str, int]:
+        current_time = time.time()
+        result = dict(leds)
+        for led_name, override in list(self.manual_led_overrides.items()):
+            expires_at = override.get("expires_at")
+            if expires_at is not None and current_time >= float(expires_at):
+                self.manual_led_overrides.pop(led_name, None)
+                continue
+            if led_name in result:
+                result[led_name] = int(override["brightness"])
+        return result
+
+    def _light_command(self, leds: Dict[str, int]) -> Dict[str, object]:
+        applied_leds = self._apply_led_overrides(leds)
+        brightness = max(applied_leds.values())
+        return {
+            "state": "on" if brightness else "off",
+            "brightness": brightness,
+            "leds": applied_leds,
+            "overrides": {name: item.get("expires_at") for name, item in self.manual_led_overrides.items()},
+        }
+
+    def _fan_command(self, level: int, active_minimum_fan: int) -> Dict[str, object]:
+        """Keep one of the two end fans moving to prevent stagnant air."""
+        level = max(int(level), self.minimum_airflow_percent)
+        fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
+        fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
+        return {
+            "mode": "auto",
+            "level": level,
+            "channels": {
+                "fan1": fan1,
+                "fan2": level,
+                "fan3": level,
+                "fan4": level,
+                "fan5": level,
+                "fan6": fan6,
+            },
+            "minimum_airflow": {
+                "enabled": True,
+                "active_fan": active_minimum_fan,
+                "percent": self.minimum_airflow_percent,
+            },
+        }
+
+    def _apply_fan_overrides(self, command: Dict[str, object], current_time: float) -> Dict[str, object]:
+        channels = dict(command["channels"])
+        active_overrides: Dict[str, object] = {}
+        for fan_name, override in list(self.manual_fan_overrides.items()):
+            expires_at = override.get("expires_at")
+            if expires_at is not None and current_time >= float(expires_at):
+                self.manual_fan_overrides.pop(fan_name, None)
+                continue
+            channels[fan_name] = int(override["level"])
+            active_overrides[fan_name] = expires_at
+        if not active_overrides:
+            return command
+        return {**command, "mode": "manual", "channels": channels, "overrides": active_overrides}
+
+    def update_heartbeat(self, timestamp: int) -> None:
+        """Record the last successful ESP32 heartbeat timestamp."""
+        self.last_heartbeat = timestamp
+
+    def evaluate_esp32_health(self, now: Optional[int] = None) -> Dict[str, object]:
+        """Return offline/alarm state when ESP32 stops transmitting."""
+        if now is None:
+            import time
+
+            now = int(time.time())
+
+        if self.last_heartbeat is None:
+            return {
+                "status": "offline",
+                "alarm": True,
+                "reason": "no_heartbeat_received",
+            }
+
+        if self.last_heartbeat > now:
+            return {
+                "status": "offline",
+                "alarm": True,
+                "reason": "heartbeat_in_future",
+            }
+
+        age = now - self.last_heartbeat
+        if age > self.heartbeat_timeout_seconds:
+            return {
+                "status": "offline",
+                "alarm": True,
+                "reason": f"heartbeat_timeout_{age}s",
+            }
+
+        return {
+            "status": "online",
+            "alarm": False,
+            "reason": "heartbeat_ok",
+        }
+
+    def evaluate_light_transition(self, time_str: str, season: str = "rainy") -> Dict[str, int]:
+        """Return the per-LED dimming profile for the 20-minute dawn/dusk transition."""
+        try:
+            hour, minute = [int(part) for part in time_str.split(":")]
+            total_minutes = hour * 60 + minute
+        except Exception:
+            return {
+                "led1": 0,
+                "led2": 0,
+                "led3": 0,
+                "led4": 0,
+            }
+
+        season_target = 80 if season == "rainy" else 100
+
+        if total_minutes < 5 * 60 + 50:
+            return {"led1": 0, "led2": 20, "led3": 0, "led4": 0}
+
+        if total_minutes < 6 * 60 + 10:
+            return {"led1": 0, "led2": 20, "led3": 20, "led4": 0}
+
+        if total_minutes < 6 * 60 + 20:
+            return {"led1": 20, "led2": 40, "led3": 40, "led4": 20}
+
+        if total_minutes < 6 * 60 + 30:
+            return {"led1": 40, "led2": 60, "led3": 60, "led4": 40}
+
+        if total_minutes < 7 * 60:
+            return {
+                "led1": season_target,
+                "led2": season_target,
+                "led3": season_target,
+                "led4": season_target,
+            }
+
+        return {
+            "led1": season_target,
+            "led2": season_target,
+            "led3": season_target,
+            "led4": season_target,
+        }
+
+    def evaluate_light_command(self, time_str: str, season: str = "rainy") -> Dict[str, object]:
+        """Build the lighting command for the current Costa Rica day cycle."""
+        try:
+            hour, minute = [int(part) for part in time_str.split(":")]
+            total_minutes = hour * 60 + minute
+        except Exception:
+            return self._light_command(self._dark_leds())
+
+        sunrise = 5 * 60 + 45
+        sunset = 18 * 60 + 15
+        transition = 20
+        if total_minutes < sunrise or total_minutes >= sunset + transition:
+            return self._light_command(self._dark_leds())
+
+        if total_minutes < sunrise + transition:
+            leds = self._scheduled_dawn_profile(total_minutes - sunrise, season)
+        elif total_minutes >= sunset:
+            dawn_profile = self.evaluate_light_transition(
+                self._minutes_to_time(sunrise + transition), season=season
+            )
+            elapsed = total_minutes - sunset
+            factor = max(0.0, 1.0 - (elapsed / transition))
+            leds = {
+                key: int(value * factor)
+                for key, value in dawn_profile.items()
+            }
+        else:
+            target = 80 if season == "rainy" else 100
+            leds = {key: target for key in ("led1", "led2", "led3", "led4")}
+
+        return self._light_command(leds)
+    def evaluate_moxa_light_outputs(
+        self,
+        time_str: str,
+        season: str = "rainy",
+    ) -> Dict[str, object]:
+        """Build Moxa power commands for the four LED driver outputs."""
+        light = self.evaluate_light_command(time_str, season)
+        leds = light["leds"]
+
+        return {
+            "do0": "ON" if leds["led1"] > 0 else "OFF",
+            "do1": "ON" if leds["led2"] > 0 else "OFF",
+            "do2": "ON" if leds["led3"] > 0 else "OFF",
+            "do3": "ON" if leds["led4"] > 0 else "OFF",
+            "state": light["state"],
+            "brightness": light["brightness"],
+        }
+
+    @staticmethod
+    def _dark_leds() -> Dict[str, int]:
+        return {key: 0 for key in ("led1", "led2", "led3", "led4")}
+
+    @staticmethod
+    def _scheduled_dawn_profile(elapsed: int, season: str) -> Dict[str, int]:
+        target = 80 if season == "rainy" else 100
+        profiles = (
+            {"led1": 0, "led2": 20, "led3": 0, "led4": 0},
+            {"led1": 0, "led2": 20, "led3": 20, "led4": 0},
+            {"led1": 20, "led2": 40, "led3": 40, "led4": 20},
+            {"led1": 40, "led2": 60, "led3": 60, "led4": 40},
+            {"led1": target, "led2": target, "led3": target, "led4": target},
+        )
+        return profiles[min(max(elapsed, 0) // 5, len(profiles) - 1)]
+
+    @staticmethod
+    def _minutes_to_time(total_minutes: int) -> str:
+        hour, minute = divmod(total_minutes, 60)
+        return f"{hour:02d}:{minute:02d}"
