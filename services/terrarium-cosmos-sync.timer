@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync terrarium history to Azure every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15:00
+Persistent=true
+Unit=terrarium-cosmos-sync.service
+
+[Install]
+WantedBy=timers.target

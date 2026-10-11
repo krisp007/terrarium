@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync terrarium history to Azure Cosmos DB
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=krisp
+Group=krisp
+WorkingDirectory=/home/krisp/terrarium-project
+EnvironmentFile=-/home/krisp/terrarium-project/.env
+Environment=TERRARIUM_HISTORY_DB=/home/krisp/terrarium-project/terrarium_history.db
+ExecStart=/home/krisp/terrarium-project/.venv/bin/python -m raspberry.cosmos_sync --from-checkpoint
