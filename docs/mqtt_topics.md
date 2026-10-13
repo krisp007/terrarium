@@ -156,13 +156,33 @@ Gebruik:
 
 ## 8. Sensorregeling naar Moxa
 
-Bij elk bericht op `esp32/sensors` stuurt de Pi naast het fancommando ook een
-commando naar `moxa/cmd/output`:
+Bij elk bericht op `esp32/sensors` stuurt de Pi naast het fancommando
+afzonderlijke commando's naar `moxa/cmd/output`:
+
+- de lichtregeling beheert alleen `DO0` tot en met `DO3`;
+- de klimaatregeling beheert `DO4`, `DO5`, `DO6` en `DO15`;
+- een regeling wijzigt nooit de outputs van een andere regeling;
+- de veiligheidslaag mag klimaatoutputs altijd uitschakelen bij een alarm.
+
+Een lichtcommando bevat alleen de LED-voedingen:
+
+```json
+{
+  "do0": "ON",
+  "do1": "ON",
+  "do2": "ON",
+  "do3": "ON"
+}
+```
+
+Het klimaatcommando bevat alleen de klimaatoutputs:
 
 ```json
 {
   "do4": "OFF",
   "do5": "ON",
+  "do6": "ON",
+  "do15": "OFF",
   "mistmaker": "ON",
   "beregening": "OFF",
   "alarm": false,
@@ -170,7 +190,7 @@ commando naar `moxa/cmd/output`:
 }
 ```
 
-Dezelfde Moxa-payload bevat ook de vier LED-voedingsuitgangen. De Moxa schakelt
+De Moxa schakelt
 de voeding fysiek aan of uit; de ESP32 regelt het dimniveau via
 `esp32/cmd/lights` en de DFR0971:
 

@@ -155,11 +155,16 @@ class TerrariumMQTTController:
             current_time = datetime.now().strftime("%H:%M")
             lights = self.logic.evaluate_light_command(current_time)
             self.publish("esp32/cmd/lights", lights)
-            moxa_command = {
-                **self.logic.evaluate_moxa_light_outputs(current_time),
-                **self.logic.evaluate_moxa_outputs(),
-            }
-            self.publish("moxa/cmd/output", self.apply_output_overrides(moxa_command))
+            self.publish(
+                "moxa/cmd/output",
+                self.apply_output_overrides(
+                    self.logic.evaluate_moxa_light_outputs(current_time)
+                ),
+            )
+            self.publish(
+                "moxa/cmd/output",
+                self.apply_output_overrides(self.logic.evaluate_moxa_outputs()),
+            )
             return command
 
         if topic == "esp32/status":

@@ -213,6 +213,48 @@ class TerrariumLogicTests(unittest.TestCase):
         controller.handle_message("moxa/status", json.dumps({"di2": True, "alarm": False}))
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
 
+    def test_moxa_status_update_only_changes_climate_outputs(self):
+        controller = TerrariumMQTTController()
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+        controller.logic.update_sensor_state({"temperature_top": 17.0})
+
+        controller.handle_message(
+            "moxa/status",
+            json.dumps({"di0": True, "di1": True, "di2": False}),
+        )
+
+        moxa_commands = [
+            payload for topic, payload in published if topic == "moxa/cmd/output"
+        ]
+        self.assertEqual(len(moxa_commands), 1)
+        self.assertEqual(moxa_commands[0]["do6"], "ON")
+        self.assertFalse(any(f"do{output}" in moxa_commands[0] for output in range(4)))
+
+    def test_sensor_update_publishes_lighting_and_climate_outputs_separately(self):
+        controller = TerrariumMQTTController()
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+        controller.logic.update_sensor_state({"temperature_top": 17.0})
+
+        controller.handle_message(
+            "esp32/sensors",
+            json.dumps({"temperature_top": 17.0}),
+        )
+
+        moxa_commands = [
+            payload for topic, payload in published if topic == "moxa/cmd/output"
+        ]
+        self.assertEqual(len(moxa_commands), 2)
+        self.assertEqual(
+            {key for key in moxa_commands[0] if key.startswith("do")},
+            {"do0", "do1", "do2", "do3"},
+        )
+        self.assertEqual(
+            {key for key in moxa_commands[1] if key.startswith("do")},
+            {"do4", "do5", "do6", "do15"},
+        )
+
     def test_ro_valve_fills_between_min_and_max_floats(self):
         logic = TerrariumLogic()
         logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": False, "di3": False, "di4": False})
