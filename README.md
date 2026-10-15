@@ -102,7 +102,8 @@ Deze template bevat:
 
 ## Status UI
 
-Het lokale scherm van de Raspberry Pi toont de gemiddelde luchttemperatuur en luchtvochtigheid:
+Het lokale dashboard van de Raspberry Pi toont live sensoren, Moxa-outputstatus,
+alarmsituatie, recente historie en handmatige bediening:
 
 ```text
 http://192.168.24.166:8080
@@ -111,6 +112,18 @@ http://192.168.24.166:8080
 De pagina wordt in kioskmodus gestart wanneer de Labwc-desktopsessie begint.
 De volledige machineleesbare status blijft beschikbaar op
 `http://192.168.24.166:8080/api/status`.
+De historie staat op `http://192.168.24.166:8080/api/history`.
+De temperatuurhistorie met lucht-/watertemperatuur en een eenvoudige
+30-minutentrend staat op `http://192.168.24.166:8080/history`.
+
+Een ESP32-CAM kan optioneel in het dashboard worden weergegeven met:
+
+```bash
+TERRARIUM_CAMERA_URL=http://<esp32cam-ip>/stream
+```
+
+Deze variabele moet worden toegevoegd aan de serviceomgeving wanneer de
+camera-stream beschikbaar is. Zonder camera-URL blijft het camerablok verborgen.
 
 ## Next.js UI
 

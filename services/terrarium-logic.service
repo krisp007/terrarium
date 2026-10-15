@@ -12,11 +12,7 @@ WorkingDirectory=/home/krisp/terrarium-project
 ExecStart=/home/krisp/terrarium-project/.venv/bin/python -m raspberry.service
 Restart=on-failure
 RestartSec=5
-Environment=TERRARIUM_MQTT_BROKER=192.168.24.166
-Environment=TERRARIUM_MQTT_PORT=1883
-Environment=TERRARIUM_LOG_LEVEL=INFO
-Environment=TERRARIUM_STATUS_PORT=8080
-Environment=TERRARIUM_SETTINGS_FILE=/home/krisp/terrarium-project/terrarium_settings_template.json
+EnvironmentFile=-/home/krisp/terrarium-project/.env
 
 [Install]
 WantedBy=multi-user.target

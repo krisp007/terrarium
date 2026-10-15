@@ -2,6 +2,7 @@ import json
 import time
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from raspberry.mqtt_controller import TerrariumMQTTController
 from raspberry.service import MOXA_READ_TOPIC, SUBSCRIPTIONS, TerrariumMQTTService
@@ -10,6 +11,12 @@ from raspberry.terrarium_logic import TerrariumLogic
 
 
 class TerrariumLogicTests(unittest.TestCase):
+    def test_mqtt_controller_reads_broker_from_environment(self):
+        with patch.dict("os.environ", {"TERRARIUM_MQTT_BROKER": "192.168.24.51"}):
+            controller = TerrariumMQTTController()
+
+        self.assertEqual(controller.broker, "192.168.24.51")
+
     def test_safe_mode_when_leak_detected(self):
         logic = TerrariumLogic()
         payload = {"di2": True, "alarm": False}
@@ -445,10 +452,11 @@ class TerrariumLogicTests(unittest.TestCase):
             def publish(self, topic, payload):
                 self.published.append((topic, payload))
 
-            def connect(self, broker, port, keepalive):
+            def connect_async(self, broker, port, keepalive):
                 self.on_connect(self, None, {}, 0)
 
-            def loop_forever(self):
+            def loop_forever(self, retry_first_connection):
+                self.retry_first_connection = retry_first_connection
                 return None
 
             def disconnect(self):
@@ -463,6 +471,7 @@ class TerrariumLogicTests(unittest.TestCase):
         service.run()
 
         self.assertEqual(client.subscribed, [*SUBSCRIPTIONS, MOXA_READ_TOPIC])
+        self.assertTrue(client.retry_first_connection)
         client.on_message(client, None, type("Message", (), {
             "topic": "esp32/sensors",
             "payload": b'{"temperature_top": 30}',

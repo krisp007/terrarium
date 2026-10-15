@@ -56,7 +56,16 @@ class TerrariumMQTTService:
         """Publish controller output as a JSON MQTT message."""
         result = self.client.publish(topic, json.dumps(payload))
         self.status.update_nested("commands", topic, payload)
-        self.status.record("command", payload, topic=topic)
+        self.status.record_state_change("command", payload, topic=topic)
+        if "alarm" in payload:
+            self.status.record_state_change(
+                "alert",
+                {
+                    "active": bool(payload["alarm"]),
+                    "reason": payload.get("reason", "unspecified"),
+                },
+                topic=topic,
+            )
         if hasattr(result, "rc") and result.rc != MQTT_SUCCESS:
             LOGGER.warning("MQTT publish failed for %s (rc=%s)", topic, result.rc)
 
@@ -76,7 +85,7 @@ class TerrariumMQTTService:
             topic = f"ioThinx_4510/write/DO@DO-{output:02d}/doStatus"
             value = {"value": 1 if state == "ON" else 0}
             result = self.client.publish(topic, json.dumps(value))
-            self.status.record(
+            self.status.record_state_change(
                 "moxa_write",
                 {
                     **value,
@@ -124,7 +133,7 @@ class TerrariumMQTTService:
             elif message.topic == "esp32/status":
                 esp_status = json.loads(payload)
                 self.status.update("esp32", {**esp_status, "last_seen": int(time.time())})
-                self.status.record("esp32_status", esp_status, topic=message.topic)
+                self.status.record_state_change("esp32_status", esp_status, topic=message.topic)
             result = self.controller.handle_message(message.topic, payload)
             LOGGER.debug("Handled %s: %s", message.topic, result)
         except Exception:
@@ -133,7 +142,7 @@ class TerrariumMQTTService:
     def _update_moxa_reading(self, topic: str, payload: str) -> None:
         reading = json.loads(payload)
         value = reading.get("value")
-        self.status.record("moxa_read", reading, topic=topic)
+        self.status.record_state_change("moxa_read", reading, topic=topic)
         channel = topic.split("/")[-2]
         target = "inputs" if "@DI-" in channel else "outputs"
         self.status.update_nested("moxa", target, {**self.status.snapshot()["moxa"].get(target, {}), channel: value})
@@ -169,13 +178,20 @@ class TerrariumMQTTService:
             port=self.status_port,
             override_callback=self.apply_override,
         )
-        self.client.connect(self.broker, self.port, keepalive=60)
-        self.client.loop_forever()
+        self.status.update(
+            "mqtt",
+            {
+                "status": "connecting",
+                "broker": f"{self.broker}:{self.port}",
+            },
+        )
+        self.client.connect_async(self.broker, self.port, keepalive=60)
+        self.client.loop_forever(retry_first_connection=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the terrarium MQTT rule engine")
-    parser.add_argument("--broker", default=os.getenv("TERRARIUM_MQTT_BROKER", "192.168.24.166"))
+    parser.add_argument("--broker", default=os.getenv("TERRARIUM_MQTT_BROKER", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.getenv("TERRARIUM_MQTT_PORT", "1883")))
     parser.add_argument(
         "--settings",

@@ -295,6 +295,18 @@ COSMOS_DATABASE=db-terrarium
 COSMOS_CONTAINER=sensor_readings
 ```
 
+`TERRARIUM_MQTT_BROKER` is the single MQTT broker address used by the Pi
+service. The systemd unit reads `/home/krisp/terrarium-project/.env`, so to
+switch from WiFi to the LAN address only update this one value, for example:
+
+```dotenv
+TERRARIUM_MQTT_BROKER=192.168.24.51
+```
+
+Run `sudo systemctl daemon-reload` and restart `terrarium-logic.service`
+after changing the file. The ESP32 is a separate device and must be configured
+with the same broker address in its own firmware/configuration.
+
 ## Final recommendation
 
 Use this exact Azure pattern:
@@ -305,3 +317,25 @@ Use this exact Azure pattern:
 - Raspberry Pi for local control and offline-first sync
 
 This is the most practical and lowest-complexity Azure setup for your terrarium project.
+
+## History retention and telemetry accuracy
+
+The ESP32 sensor node publishes one complete sensor payload every two minutes.
+The Pi stores each payload locally and the `terrarium-cosmos-sync.timer` uploads
+new records to Cosmos DB every 15 minutes using a resumable local checkpoint.
+Consequently, Cosmos DB receives the original timestamped readings for accurate
+cloud analysis, including periods in which the Pi briefly lost internet access.
+
+Local storage uses tiered retention to protect the SD card:
+
+- raw sensor payloads: 30 days;
+- five-minute sensor aggregates: 180 days;
+- hourly sensor aggregates: 2 years;
+- actuator and Moxa state changes: 180 days;
+- alarms: 1 year.
+
+Repeated identical actuator and Moxa feedback states are not recorded. Azure
+receives each locally stored sensor payload before raw local retention removes it.
+If Cosmos DB or the internet is unavailable, the Pi retains unsynchronised raw
+sensor payloads beyond the normal 30-day window until the checkpoint confirms
+their upload.

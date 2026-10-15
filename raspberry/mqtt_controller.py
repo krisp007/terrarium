@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -13,8 +14,8 @@ from .terrarium_logic import TerrariumLogic
 class TerrariumMQTTController:
     """Bridge MQTT topics with the terrarium logic rules."""
 
-    def __init__(self, broker: str = "192.168.24.166", settings: Optional[Dict[str, object]] = None) -> None:
-        self.broker = broker
+    def __init__(self, broker: Optional[str] = None, settings: Optional[Dict[str, object]] = None) -> None:
+        self.broker = broker or os.getenv("TERRARIUM_MQTT_BROKER", "127.0.0.1")
         self.logic = TerrariumLogic(settings=settings)
         self.manual_output_overrides: Dict[str, Dict[str, object]] = {}
 
