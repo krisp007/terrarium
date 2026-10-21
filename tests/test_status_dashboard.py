@@ -43,6 +43,9 @@ class StatusDashboardTests(unittest.TestCase):
         self.assertIn("Moxa", page)
         self.assertIn("/api/history", page)
         self.assertIn("Manual control", page)
+        self.assertIn("RO on", page)
+        self.assertIn("RO off", page)
+        self.assertIn("RO auto", page)
 
     def test_status_api_remains_available_for_the_pc_ui(self):
         self.store.update("esp32", {"sensors": {"temperature_top": 24.5}})

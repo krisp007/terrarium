@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import random
 import time
+from datetime import date, datetime, time as datetime_time
 from typing import Callable, Dict, Optional
 
 
@@ -40,6 +41,7 @@ DEFAULT_MISTMAKER_SETTINGS = {
     "auto_mode": True,
     "max_runtime_minutes": 10,
     "pause_minutes": 8,
+    "morning_after_irrigation_minutes": 20,
 }
 DEFAULT_IRRIGATION_SETTINGS = {
     "enabled": True,
@@ -47,6 +49,8 @@ DEFAULT_IRRIGATION_SETTINGS = {
     "cycle_minutes": 20,
     "duration_seconds": 25,
     "max_runtime_minutes": 10,
+    "humidity_on_percent": 82.0,
+    "humidity_off_percent": 90.0,
 }
 # Reservoir floats without wiring yet; assume filled until the hardware is connected.
 DEFAULT_FLOAT_OVERRIDES: Dict[str, bool] = {"di0": True, "di1": True}
@@ -62,8 +66,9 @@ class TerrariumLogic:
         self.heartbeat_timeout_seconds = 180
         self.mistmaker_on_humidity = 82.0
         self.mistmaker_off_humidity = 90.0
-        self.irrigation_on_soil = 35.0
-        self.irrigation_off_soil = 55.0
+        self.irrigation_on_humidity = 82.0
+        self.irrigation_off_humidity = 90.0
+        self.schedule = {"sunrise": "05:45", "sunset": "18:15"}
         self.fan_thresholds: Dict[str, float] = dict(DEFAULT_FAN_THRESHOLDS)
         self.fan_levels: Dict[str, int] = dict(DEFAULT_FAN_LEVELS)
         self.heater_thresholds: Dict[str, float] = dict(DEFAULT_HEATER_THRESHOLDS)
@@ -82,12 +87,27 @@ class TerrariumLogic:
         self.mistmaker_pause_until = 0.0
         self.irrigation_run_until = 0.0
         self.irrigation_next_cycle = 0.0
+        self.irrigation_morning_run_until = 0.0
+        self.irrigation_morning_date: Optional[date] = None
+        self.mistmaker_morning_start_at = 0.0
+        self.mistmaker_morning_run_until = 0.0
         self.ro_filling = False
         if settings is not None:
             self.update_settings(settings)
 
     def update_settings(self, settings: Dict[str, object]) -> None:
         """Apply editable settings without changing the rule engine."""
+        schedule = settings.get("schedule", {})
+        if isinstance(schedule, dict):
+            for key in ("sunrise", "sunset"):
+                value = schedule.get(key)
+                if isinstance(value, str):
+                    try:
+                        datetime.strptime(value, "%H:%M")
+                    except ValueError:
+                        continue
+                    self.schedule[key] = value
+
         fan_control = settings.get("fan_control", {})
         if isinstance(fan_control, dict):
             thresholds = fan_control.get("temp_thresholds_c", {})
@@ -123,7 +143,11 @@ class TerrariumLogic:
                 value = mistmaker_settings.get(key)
                 if isinstance(value, bool):
                     self.mistmaker_settings[key] = value
-            for key in ("max_runtime_minutes", "pause_minutes"):
+            for key in (
+                "max_runtime_minutes",
+                "pause_minutes",
+                "morning_after_irrigation_minutes",
+            ):
                 value = mistmaker_settings.get(key)
                 if isinstance(value, (int, float)):
                     self.mistmaker_settings[key] = value
@@ -136,8 +160,15 @@ class TerrariumLogic:
                     self.irrigation_settings[key] = value
             for key in ("cycle_minutes", "duration_seconds", "max_runtime_minutes"):
                 value = irrigation_settings.get(key)
-                if isinstance(value, (int, float)):
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
                     self.irrigation_settings[key] = value
+            for key, attribute in (
+                ("humidity_on_percent", "irrigation_on_humidity"),
+                ("humidity_off_percent", "irrigation_off_humidity"),
+            ):
+                value = irrigation_settings.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    setattr(self, attribute, float(value))
 
         seasons = settings.get("seasons", {})
         if isinstance(seasons, dict):
@@ -192,7 +223,10 @@ class TerrariumLogic:
         self.moxa_state = dict(payload)
         if self._di_value("di2") is True or payload.get("alarm") is True:
             self.mistmaker_run_until = 0.0
+            self.mistmaker_morning_start_at = 0.0
+            self.mistmaker_morning_run_until = 0.0
             self.irrigation_run_until = 0.0
+            self.irrigation_morning_run_until = 0.0
             self.ro_filling = False
             return {
                 "mistmaker": "OFF",
@@ -205,20 +239,20 @@ class TerrariumLogic:
                 "reason": "leak_detected",
             }
 
-        mistmaker = "OFF" if self._di_value("di0") is False else "ON"
-        irrigation = "OFF" if self._di_value("di1") is False else "ON"
-        reservoir_alarm = mistmaker == "OFF" or irrigation == "OFF"
-
-        return {
-            "mistmaker": mistmaker,
-            "beregening": irrigation,
-            "do4": irrigation,
-            "do5": mistmaker,
+        mist_reservoir_ok = self._di_value("di0") is not False
+        irrigation_reservoir_ok = self._di_value("di1") is not False
+        reservoir_alarm = not mist_reservoir_ok or not irrigation_reservoir_ok
+        actions: Dict[str, object] = {
             "do6": self.evaluate_heater_command()["state"],
             "do15": self.evaluate_ro_command()["do15"],
             "alarm": reservoir_alarm,
             "reason": "reservoir_low" if reservoir_alarm else "normal",
         }
+        if not mist_reservoir_ok:
+            actions.update({"mistmaker": "OFF", "do5": "OFF"})
+        if not irrigation_reservoir_ok:
+            actions.update({"beregening": "OFF", "do4": "OFF"})
+        return actions
 
     def _evaluate_mist_cycle(self, humidity: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
         """Run the mistmaker for max_runtime_minutes, then pause for pause_minutes."""
@@ -240,25 +274,134 @@ class TerrariumLogic:
             return "ON", "cycle_start"
         return "OFF", "cycle_pause"
 
-    def _evaluate_irrigation_cycle(self, soil: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
-        """Run irrigation for duration_seconds every cycle_minutes while soil is too low."""
+    def _evaluate_irrigation_cycle(
+        self,
+        humidity: Optional[float],
+        reservoir_ok: bool,
+        rainstorm_active: bool,
+        now: float,
+        current_datetime: datetime,
+    ) -> tuple[str, str]:
+        """Run irrigation on low average humidity and once before daily sunrise."""
         if not reservoir_ok or not self.irrigation_settings.get("enabled", True):
             self.irrigation_run_until = 0.0
+            self.irrigation_morning_run_until = 0.0
             return "OFF", "reservoir_low" if not reservoir_ok else "disabled"
         if rainstorm_active:
             return "ON", "rainstorm"
-        if soil is not None and soil >= self.irrigation_off_soil:
+
+        sunrise = datetime.strptime(self.schedule["sunrise"], "%H:%M").time()
+        sunrise_today = datetime.combine(current_datetime.date(), sunrise)
+        duration = max(0.0, float(self.irrigation_settings.get("duration_seconds", 25)))
+        morning_start = sunrise_today.timestamp() - duration
+        if (
+            self.irrigation_morning_date != current_datetime.date()
+            and morning_start <= now < sunrise_today.timestamp()
+        ):
+            self.irrigation_morning_date = current_datetime.date()
+            self.irrigation_morning_run_until = sunrise_today.timestamp()
+            self.mistmaker_morning_start_at = sunrise_today.timestamp()
+            morning_mist_minutes = max(
+                0.0,
+                float(self.mistmaker_settings.get("morning_after_irrigation_minutes", 20)),
+            )
+            self.mistmaker_morning_run_until = (
+                sunrise_today.timestamp() + morning_mist_minutes * 60
+            )
+            cycle = max(0.0, float(self.irrigation_settings.get("cycle_minutes", 20))) * 60
+            self.irrigation_next_cycle = now + cycle
+
+        if now < self.irrigation_morning_run_until:
+            return "ON", "morning_cycle"
+
+        if humidity is not None and humidity >= self.irrigation_off_humidity:
             self.irrigation_run_until = 0.0
-            return "OFF", "soil_ok"
+            return "OFF", "humidity_ok"
         if now < self.irrigation_run_until:
             return "ON", "cycle_running"
-        if now >= self.irrigation_next_cycle and (soil is None or soil < self.irrigation_on_soil):
-            duration = max(0.0, float(self.irrigation_settings.get("duration_seconds", 25)))
+        if (
+            humidity is not None
+            and humidity < self.irrigation_on_humidity
+            and now >= self.irrigation_next_cycle
+        ):
             cycle = max(0.0, float(self.irrigation_settings.get("cycle_minutes", 20))) * 60
             self.irrigation_run_until = now + duration
             self.irrigation_next_cycle = now + cycle
             return "ON", "cycle_start"
         return "OFF", "cycle_wait"
+
+    def evaluate_scheduled_morning_mistmaker(self, now: Optional[float] = None) -> Optional[str]:
+        """Run DO5 after the scheduled morning irrigation, then resume RH control."""
+        current_time = time.time() if now is None else now
+        if self.mistmaker_morning_run_until <= 0:
+            return None
+
+        reservoir_ok = self._di_value("di0") is not False
+        safety_ok = (
+            self.moxa_state is not None
+            and self._di_value("di2") is not True
+            and self.moxa_state.get("alarm") is not True
+            and reservoir_ok
+            and self.mistmaker_settings.get("enabled", True)
+        )
+        if not safety_ok:
+            self.mistmaker_morning_start_at = 0.0
+            self.mistmaker_morning_run_until = 0.0
+            return "OFF"
+        if current_time < self.mistmaker_morning_start_at:
+            return None
+        if current_time < self.mistmaker_morning_run_until:
+            return "ON"
+
+        self.mistmaker_morning_start_at = 0.0
+        self.mistmaker_morning_run_until = 0.0
+        humidity_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("humidity_")
+        ]
+        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
+        rainstorm_active = current_time < self.rainstorm_until
+        mistmaker, _reason = self._evaluate_mist_cycle(
+            humidity,
+            reservoir_ok,
+            rainstorm_active,
+            current_time,
+        )
+        return mistmaker
+
+    def evaluate_irrigation_command(
+        self,
+        now: Optional[float] = None,
+        rainstorm_active: Optional[bool] = None,
+    ) -> str:
+        """Evaluate only DO4, without advancing other actuator schedules."""
+        current_time = time.time() if now is None else now
+        if self.moxa_state is None or (
+            self._di_value("di2") is True or self.moxa_state.get("alarm") is True
+        ):
+            self.irrigation_run_until = 0.0
+            self.irrigation_morning_run_until = 0.0
+            return "OFF"
+
+        humidity_values = [
+            value for key, value in self.sensor_state.items()
+            if key.startswith("humidity_")
+        ]
+        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
+        reservoir_ok = self._di_value("di1") is not False
+        active_rainstorm = (
+            current_time < self.rainstorm_until
+            if rainstorm_active is None
+            else rainstorm_active
+        )
+        irrigation, _reason = self._evaluate_irrigation_cycle(
+            humidity,
+            reservoir_ok,
+            active_rainstorm,
+            current_time,
+            datetime.fromtimestamp(current_time),
+        )
+        return irrigation
 
     def evaluate_moxa_outputs(self, now: Optional[float] = None) -> Dict[str, object]:
         """Translate the latest sensors to Moxa DO4/DO5/DO15 commands."""
@@ -267,16 +410,14 @@ class TerrariumLogic:
             value for key, value in self.sensor_state.items()
             if key.startswith("humidity_")
         ]
-        soil_values = [
-            value for key, value in self.sensor_state.items()
-            if key.startswith("soil_")
-        ]
-
         if self.moxa_state is not None and (
             self._di_value("di2") is True or self.moxa_state.get("alarm") is True
         ):
             self.mistmaker_run_until = 0.0
             self.irrigation_run_until = 0.0
+            self.irrigation_morning_run_until = 0.0
+            self.mistmaker_morning_start_at = 0.0
+            self.mistmaker_morning_run_until = 0.0
             self.ro_filling = False
             return {
                 "do4": "OFF",
@@ -302,13 +443,21 @@ class TerrariumLogic:
             }
 
         humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
-        soil = sum(soil_values) / len(soil_values) if soil_values else None
         mist_reservoir_ok = self._di_value("di0") is not False
         irrigation_reservoir_ok = self._di_value("di1") is not False
 
         rainstorm = self.evaluate_rainstorm()
         mistmaker, _mist_reason = self._evaluate_mist_cycle(humidity, mist_reservoir_ok, rainstorm["active"], current_time)
-        irrigation, _irrigation_reason = self._evaluate_irrigation_cycle(soil, irrigation_reservoir_ok, rainstorm["active"], current_time)
+        if (
+            mist_reservoir_ok
+            and self.mistmaker_settings.get("enabled", True)
+            and self.mistmaker_morning_start_at <= current_time < self.mistmaker_morning_run_until
+        ):
+            mistmaker = "ON"
+        irrigation = self.evaluate_irrigation_command(
+            now=current_time,
+            rainstorm_active=bool(rainstorm["active"]),
+        )
 
         reservoir_alarm = not mist_reservoir_ok or not irrigation_reservoir_ok
 
@@ -615,8 +764,10 @@ class TerrariumLogic:
         except Exception:
             return self._light_command(self._dark_leds())
 
-        sunrise = 5 * 60 + 45
-        sunset = 18 * 60 + 15
+        sunrise_hour, sunrise_minute = map(int, self.schedule["sunrise"].split(":"))
+        sunset_hour, sunset_minute = map(int, self.schedule["sunset"].split(":"))
+        sunrise = sunrise_hour * 60 + sunrise_minute
+        sunset = sunset_hour * 60 + sunset_minute
         transition = 20
         if total_minutes < sunrise or total_minutes >= sunset + transition:
             return self._light_command(self._dark_leds())

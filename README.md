@@ -20,7 +20,7 @@ Het doel is een stabiel en lokaal autonoom systeem dat een Costa Rica-achtige te
 - warmere, drogere periodes tijdens daglicht en droge fase
 - temperatuur en luchtvochtigheid bewaakt
 - aquariumtemperatuur volgt
-- bodemvocht controleert
+- bodemvocht meet (beregening wordt gestuurd op luchtvochtigheid)
 - ventilatie en verlichting bestuurt
 - waterniveau en lekkage detecteert
 - alarms en veilige fallback-gedragingen toepast

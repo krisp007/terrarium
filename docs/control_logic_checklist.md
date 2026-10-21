@@ -36,11 +36,14 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [ ] temperatuur binnen min/max houden
 - [ ] luchtvochtigheid binnen min/max houden
 - [x] mistmaker bij droge of te lage RH activeren
-- [x] irrigatie bij vochttekort activeren
+- [x] beregening cyclisch activeren bij gemiddelde luchtvochtigheid onder 82% en stoppen vanaf 90%
+- [x] sproeiers dagelijks 25 seconden vóór de ingestelde lichtstart activeren
+- [x] mistmaker na ochtendbesproeiing 20 minuten activeren, met veiligheidsblokkades
 - [x] willekeurige regenbui tijdens `rainy` met configureerbare duur en cooldown
 - [x] verlichting aanpassen op zon op / zon onder
 - [x] verlichting heeft een 20-minuten dawn/dusk ramp
 - [x] na Pi-restart lichtregeling start op basis van de actuele kloktijd
+- [x] lichtschema wordt periodiek opnieuw toegepast, ook zonder ESP32-sensorupdates
 
 ---
 
@@ -97,6 +100,9 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] warmtelamp bij te lage temperatuur in unit tests
 - [x] RH te laag in unit tests
 - [x] lekdetectie in unit tests
+- [x] beregening gestuurd door gemiddelde luchtvochtigheid in unit tests
+- [x] ochtendberegening vóór lichtstart in unit tests
+- [x] ochtend-mistmakerduur en reservoir-/lekbeveiliging in unit tests
 - [x] reservoir laag in unit tests
 - [x] regenbui alleen in regenseizoen in unit tests
 - [x] regenbui geblokkeerd door lek of leeg reservoir in unit tests

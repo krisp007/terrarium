@@ -463,8 +463,11 @@ button:hover{background:#37604e}
 <button onclick="override('Mist Maker','off')">Mist maker off</button>
 <button onclick="override('Pump:irrigation','on')">Irrigation on</button>
 <button onclick="override('Pump:irrigation','off')">Irrigation off</button>
+<button onclick="override('Pump:ro','on')">RO on</button>
+<button onclick="override('Pump:ro','off')">RO off</button>
 <button onclick="restoreAuto('Heat Lamp')">Heat lamp auto</button>
 <button onclick="restoreAuto('Mist Maker')">Mist maker auto</button>
+<button onclick="restoreAuto('Pump','ro')">RO auto</button>
 </div><p id="message" role="status" aria-live="polite"></p></section>
 <section class="panel"><h2>Recent history</h2><div id="history" class="grid"></div></section>
 <section class="panel" id="camera-panel"><h2>Camera</h2><img id="camera" alt="Terrarium camera unavailable"></section>
@@ -551,8 +554,8 @@ function override(actor, state){
  const [actorType,actorName]=actor.includes(':')?actor.split(':'): [actor,actor];
  postOverride(actorType,actorName,state).catch(()=>{message.textContent='Command failed';});
 }
-function restoreAuto(actorType){
- postAuto(actorType,actorType).catch(()=>{message.textContent='Auto mode failed';});
+function restoreAuto(actorType,actorName=actorType){
+ postAuto(actorType,actorName).catch(()=>{message.textContent='Auto mode failed';});
 }
 async function refresh(){
  try{

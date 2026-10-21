@@ -194,14 +194,17 @@
     "enabled": true,
     "auto_mode": true,
     "max_runtime_minutes": 10,
-    "pause_minutes": 8
+    "pause_minutes": 8,
+    "morning_after_irrigation_minutes": 20
   },
   "irrigation": {
     "enabled": true,
     "auto_mode": true,
     "cycle_minutes": 20,
     "duration_seconds": 25,
-    "max_runtime_minutes": 10
+    "max_runtime_minutes": 10,
+    "humidity_on_percent": 82,
+    "humidity_off_percent": 90
   },
   "safety": {
     "leak_detected": "shutdown_mist_and_irrigation",

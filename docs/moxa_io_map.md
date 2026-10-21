@@ -84,11 +84,19 @@ DI4 (maximumniveau):
 
 Beregening en mistmaker volgen een cyclus uit `terrarium_settings_template.json`
 (`irrigation.cycle_minutes` / `duration_seconds` en `mistmaker.max_runtime_minutes`
-/ `pause_minutes`), en starten alleen wanneer de sensorwaarde dit toelaat:
+/ `pause_minutes`):
 
-- Bodemvocht te laag → beregening mag starten (`OK`)
-- Bodemvocht te hoog → beregening geforceerd uit (`niet OK`)
-- Dezelfde logica geldt voor luchtvochtigheid en de mistmaker
+- Gemiddelde luchtvochtigheid onder `irrigation.humidity_on_percent` → beregening
+  mag starten (`OK`)
+- Gemiddelde luchtvochtigheid vanaf `irrigation.humidity_off_percent` →
+  beregening wordt uitgeschakeld
+- Elke ochtend wordt 25 seconden vóór `schedule.sunrise` een sproeibeurt gestart;
+  `duration_seconds` bepaalt de duur en reservoir-/lekbeveiliging blijft actief
+- Direct na deze ochtendbesproeiing gaat DO5 gedurende
+  `mistmaker.morning_after_irrigation_minutes` (standaard 20 minuten) aan, mits
+  het mistmakerreservoir OK is en er geen lek-/veiligheidsalarm actief is
+- De mistmaker gebruikt dezelfde gemiddelde luchtvochtigheidssensoren, met zijn
+  eigen aan/uit-grenzen en cyclusinstellingen
 
 ### Vlotter-override reservoirs (DI0/DI1)
 

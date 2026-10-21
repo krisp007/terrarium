@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import signal
+import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -20,6 +21,8 @@ SUBSCRIPTIONS = ("esp32/sensors", "esp32/status", "moxa/status")
 MQTT_SUCCESS = 0
 MOXA_OUTPUT_TOPIC = "moxa/cmd/output"
 MOXA_READ_TOPIC = "ioThinx_4510/read/#"
+LIGHT_SCHEDULE_INTERVAL_SECONDS = 60
+IRRIGATION_SCHEDULE_INTERVAL_SECONDS = 1
 
 
 class TerrariumMQTTService:
@@ -47,6 +50,7 @@ class TerrariumMQTTService:
         self.controller.publish = self._publish
         self.status = StatusStore()
         self.status_server = None
+        self._light_schedule_stop = threading.Event()
         self.status.update("service", {"status": "online", "started_at": int(time.time())})
 
         self.client.on_connect = self._on_connect
@@ -159,12 +163,27 @@ class TerrariumMQTTService:
             current = dict(self.controller.logic.moxa_state or {})
             current[f"di{input_number}"] = bool(value)
             actions = self.controller.logic.evaluate_moxa_state(current)
-            self._publish("moxa/cmd/output", self.controller.apply_output_overrides(actions))
+            self.controller.publish_moxa_output(actions)
         except (ValueError, TypeError, json.JSONDecodeError):
             LOGGER.warning("Invalid Moxa DI message on %s", topic)
 
+    def _run_light_schedule(self) -> None:
+        while not self._light_schedule_stop.wait(LIGHT_SCHEDULE_INTERVAL_SECONDS):
+            try:
+                self.controller.publish_scheduled_lights()
+            except Exception:
+                LOGGER.exception("Failed to publish scheduled light state")
+
+    def _run_irrigation_schedule(self) -> None:
+        while not self._light_schedule_stop.wait(IRRIGATION_SCHEDULE_INTERVAL_SECONDS):
+            try:
+                self.controller.publish_scheduled_irrigation()
+            except Exception:
+                LOGGER.exception("Failed to publish scheduled irrigation state")
+
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")
+        self._light_schedule_stop.set()
         self.status.update("service", {"status": "stopping"})
         if self.status_server is not None:
             self.status_server.shutdown()
@@ -185,8 +204,26 @@ class TerrariumMQTTService:
                 "broker": f"{self.broker}:{self.port}",
             },
         )
-        self.client.connect_async(self.broker, self.port, keepalive=60)
-        self.client.loop_forever(retry_first_connection=True)
+        self._light_schedule_stop.clear()
+        light_schedule_thread = threading.Thread(
+            target=self._run_light_schedule,
+            name="light-schedule",
+            daemon=True,
+        )
+        irrigation_schedule_thread = threading.Thread(
+            target=self._run_irrigation_schedule,
+            name="irrigation-schedule",
+            daemon=True,
+        )
+        light_schedule_thread.start()
+        irrigation_schedule_thread.start()
+        try:
+            self.client.connect_async(self.broker, self.port, keepalive=60)
+            self.client.loop_forever(retry_first_connection=True)
+        finally:
+            self._light_schedule_stop.set()
+            light_schedule_thread.join(timeout=LIGHT_SCHEDULE_INTERVAL_SECONDS + 1)
+            irrigation_schedule_thread.join(timeout=IRRIGATION_SCHEDULE_INTERVAL_SECONDS + 1)
 
 
 def main() -> None:
