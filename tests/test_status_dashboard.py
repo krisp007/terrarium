@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 from http.server import ThreadingHTTPServer
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from raspberry.status_dashboard import DashboardHandler, StatusStore
 
@@ -16,7 +16,14 @@ class StatusDashboardTests(unittest.TestCase):
         handler = type(
             "TestDashboardHandler",
             (DashboardHandler,),
-            {"store": self.store, "override_callback": None},
+            {
+                "store": self.store,
+                "override_callback": None,
+                "settings_callback": staticmethod(
+                    lambda: {"schedule": {"sunrise": "06:00"}}
+                ),
+                "update_settings_callback": staticmethod(lambda payload: payload),
+            },
         )
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -46,6 +53,24 @@ class StatusDashboardTests(unittest.TestCase):
         self.assertIn("RO on", page)
         self.assertIn("RO off", page)
         self.assertIn("RO auto", page)
+        self.assertIn("Climate settings (JSON)", page)
+        self.assertIn("/api/settings", page)
+
+    def test_settings_api_reads_and_saves_json(self):
+        settings = {"schedule": {"sunrise": "06:00"}}
+
+        with urlopen(f"{self.base_url}/api/settings") as response:
+            self.assertEqual(json.load(response), settings)
+
+        updated = {"schedule": {"sunrise": "06:30"}}
+        request = Request(
+            f"{self.base_url}/api/settings",
+            data=json.dumps(updated).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with urlopen(request) as response:
+            self.assertEqual(json.load(response), updated)
 
     def test_status_api_remains_available_for_the_pc_ui(self):
         self.store.update("esp32", {"sensors": {"temperature_top": 24.5}})

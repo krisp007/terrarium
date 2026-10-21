@@ -16,6 +16,41 @@
     "night_end": "05:45",
     "auto_day_night": true
   },
+  "sensors": {
+    "temperature_prefixes": ["temperature"],
+    "humidity_prefixes": ["humidity_"],
+    "labels": {
+      "temperature_left": "Temperature left",
+      "temperature_right": "Temperature right",
+      "temperature_top": "Temperature middle/top",
+      "humidity_left": "Humidity left",
+      "humidity_right": "Humidity right",
+      "humidity_top": "Humidity middle/top",
+      "soil_left": "Soil moisture left",
+      "soil_right": "Soil moisture right",
+      "aquarium_temp": "Aquarium temperature"
+    }
+  },
+  "io_mapping": {
+    "inputs": {
+      "mist_reservoir": "di0",
+      "irrigation_reservoir": "di1",
+      "leak": "di2",
+      "ro_minimum": "di3",
+      "ro_maximum": "di4"
+    },
+    "outputs": {
+      "led1": "do0",
+      "led2": "do1",
+      "led3": "do2",
+      "led4": "do3",
+      "irrigation": "do4",
+      "mistmaker": "do5",
+      "heater": "do6",
+      "waterfall": "do7",
+      "ro_fill": "do15"
+    }
+  },
   "seasons": {
     "dry": {
       "active": false,
@@ -195,7 +230,9 @@
     "auto_mode": true,
     "max_runtime_minutes": 10,
     "pause_minutes": 8,
-    "morning_after_irrigation_minutes": 20
+    "morning_after_irrigation_minutes": 20,
+    "humidity_on_percent": 82,
+    "humidity_off_percent": 90
   },
   "irrigation": {
     "enabled": true,
@@ -216,8 +253,8 @@
     "humidity_too_high_percent": 99,
     "alarm_enabled": true,
     "float_overrides": {
-      "di0": true,
-      "di1": true
+      "mist_reservoir": true,
+      "irrigation_reservoir": true
     }
   },
   "ui": {
@@ -226,6 +263,8 @@
       "profile_name",
       "timezone",
       "schedule",
+      "sensors",
+      "io_mapping",
       "seasons",
       "fan_control",
       "lighting",

@@ -140,6 +140,18 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(storm["do5"], "ON")
         self.assertEqual(logic.evaluate_rainstorm(season="dry", now=1001, random_value=0.0)["active"], False)
 
+    def test_active_season_comes_from_json_profile(self):
+        logic = TerrariumLogic({
+            "seasons": {
+                "rainy": {"active": False},
+                "dry": {"active": True},
+            },
+        })
+
+        self.assertEqual(logic.active_season(), "dry")
+        self.assertEqual(logic.evaluate_light_command("12:00")["brightness"], 100)
+        self.assertFalse(logic.evaluate_rainstorm(now=1000, random_value=0.0)["active"])
+
     def test_rainstorm_is_blocked_by_leak_or_empty_reservoir(self):
         logic = TerrariumLogic()
         logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
@@ -176,6 +188,72 @@ class TerrariumLogicTests(unittest.TestCase):
             },
         })
         self.assertEqual(logic.evaluate_fan_command()["level"], 45)
+
+    def test_airflow_and_lighting_follow_json_settings(self):
+        logic = TerrariumLogic({
+            "schedule": {"sunrise": "07:00", "sunset": "19:00"},
+            "fan_control": {
+                "minimum_airflow": {
+                    "enabled": False,
+                    "fans": [2, 5],
+                    "percent": 18,
+                    "alternate_seconds": 30,
+                },
+            },
+            "lighting": {
+                "enabled": True,
+                "dawn_dusk_transition_minutes": 10,
+                "day_brightness_by_season": {"rainy": 42},
+                "transition_steps": [
+                    {"minutes_from_start": 0, "leds": {"led1": 10}},
+                    {"minutes_from_start": 5, "leds": {"led1": 30, "led2": 20}},
+                ],
+            },
+            "safety": {"no_heartbeat_timeout_sec": 75},
+        })
+
+        fan_command = logic.evaluate_fan_command(now=0)
+        self.assertEqual(fan_command["level"], 0)
+        self.assertEqual(set(fan_command["channels"].values()), {0})
+        self.assertFalse(fan_command["minimum_airflow"]["enabled"])
+        self.assertEqual(logic.heartbeat_timeout_seconds, 75)
+
+        self.assertEqual(logic.evaluate_light_command("07:00")["leds"]["led1"], 10)
+        self.assertEqual(logic.evaluate_light_command("07:05")["leds"]["led2"], 20)
+        self.assertEqual(logic.evaluate_light_command("07:10")["brightness"], 42)
+        self.assertEqual(logic.evaluate_light_command("19:05")["brightness"], 21)
+
+    def test_invalid_json_settings_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "schedule.sunrise"):
+            TerrariumLogic({"schedule": {"sunrise": "25:61"}})
+
+    def test_replacing_settings_restores_defaults_for_omitted_fields(self):
+        logic = TerrariumLogic({"schedule": {"sunrise": "06:30"}})
+        logic.update_sensor_state({"temperature_top": 24.0})
+        logic.replace_settings({"schedule": {"sunrise": "07:00"}})
+
+        self.assertEqual(logic.schedule, {"sunrise": "07:00", "sunset": "18:15"})
+        self.assertEqual(logic.fan_thresholds["low"], 22.0)
+        self.assertEqual(logic.sensor_state["temperature_top"], 24.0)
+
+    def test_sensor_and_moxa_io_mapping_are_json_driven(self):
+        logic = TerrariumLogic({
+            "sensors": {
+                "temperature_prefixes": ["air_temp_"],
+                "humidity_prefixes": ["rh_"],
+            },
+            "io_mapping": {
+                "inputs": {"leak": "di5"},
+                "outputs": {"heater": "do8"},
+            },
+        })
+        logic.update_sensor_state({"air_temp_top": 17.0, "rh_top": 80.0})
+
+        self.assertEqual(logic.evaluate_heater_command()["do8"], "ON")
+        actions = logic.evaluate_moxa_state({"di5": True})
+        self.assertEqual(actions["do8"], "OFF")
+        self.assertEqual(actions["do4"], "OFF")
+        self.assertTrue(actions["alarm"])
 
     def test_no_heartbeat_sets_alarm(self):
         logic = TerrariumLogic()
@@ -570,14 +648,15 @@ class TerrariumLogicTests(unittest.TestCase):
 
         dawn = logic.evaluate_light_transition("05:50", season="rainy")
         self.assertEqual(dawn["led2"], 20)
+        self.assertEqual(dawn["led3"], 20)
 
-        morning = logic.evaluate_light_transition("06:10", season="rainy")
+        morning = logic.evaluate_light_transition("05:55", season="rainy")
         self.assertEqual(morning["led1"], 20)
         self.assertEqual(morning["led2"], 40)
         self.assertEqual(morning["led3"], 40)
         self.assertEqual(morning["led4"], 20)
 
-        full_day = logic.evaluate_light_transition("12:00", season="rainy")
+        full_day = logic.evaluate_light_transition("06:05", season="rainy")
         self.assertEqual(full_day["led1"], 80)
         self.assertEqual(full_day["led2"], 80)
         self.assertEqual(full_day["led3"], 80)
@@ -588,6 +667,34 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(dry_day["led2"], 100)
         self.assertEqual(dry_day["led3"], 100)
         self.assertEqual(dry_day["led4"], 100)
+
+    def test_settings_are_saved_and_applied_without_restart(self):
+        class FakeClient:
+            def publish(self, *_args):
+                return None
+
+        with tempfile.TemporaryDirectory() as directory:
+            settings_path = f"{directory}/terrarium.json"
+            service = TerrariumMQTTService(
+                "example.local",
+                settings_path=settings_path,
+                client_factory=FakeClient,
+            )
+            saved = service.apply_settings({
+                "schedule": {"sunrise": "06:30"},
+                "fan_control": {
+                    "temp_thresholds_c": {"low": 20, "medium": 23, "high": 26, "max_safe": 29},
+                },
+            })
+
+            with open(settings_path, "r", encoding="utf-8") as settings_file:
+                persisted = json.load(settings_file)
+            self.assertEqual(persisted, saved)
+            self.assertEqual(service.controller.logic.schedule["sunrise"], "06:30")
+            with self.assertRaisesRegex(ValueError, "schedule.sunrise"):
+                service.apply_settings({"schedule": {"sunrise": "25:61"}})
+            with open(settings_path, "r", encoding="utf-8") as settings_file:
+                self.assertEqual(json.load(settings_file), saved)
 
     def test_light_command_follows_day_and_night_schedule(self):
         logic = TerrariumLogic()

@@ -112,6 +112,13 @@ http://192.168.24.166:8080
 De pagina wordt in kioskmodus gestart wanneer de Labwc-desktopsessie begint.
 De volledige machineleesbare status blijft beschikbaar op
 `http://192.168.24.166:8080/api/status`.
+Klimaatinstellingen kunnen live worden bekeken en aangepast als JSON op de
+dashboardpagina. Wijzigingen worden gevalideerd, opgeslagen in het ingestelde
+configuratiebestand en direct toegepast. Standaard is dit
+[terrarium_settings_template.json](terrarium_settings_template.json); stel
+`TERRARIUM_SETTINGS_FILE` in om een eigen JSON-profiel te gebruiken. Het profiel
+bevat onder meer tijden, seizoenen, klimaatdrempels, sensorprefixen en Moxa
+DI/DO-mapping.
 De historie staat op `http://192.168.24.166:8080/api/history`.
 De temperatuurhistorie met lucht-/watertemperatuur en een eenvoudige
 30-minutentrend staat op `http://192.168.24.166:8080/history`.

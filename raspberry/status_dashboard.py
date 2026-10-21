@@ -441,6 +441,8 @@ button{border:1px solid #5b806d;border-radius:5px;background:#29463a;color:#f2f5
 button:hover{background:#37604e}
 #message{min-height:20px;color:#d7bd72;font:14px Arial,sans-serif}
 #camera{width:100%;min-height:180px;border:0;border-radius:6px;background:#0e1714}
+textarea{width:100%;min-height:360px;margin-top:12px;padding:14px;border:1px solid #5b806d;border-radius:5px;background:#101b18;color:#f2f5ef;font:13px/1.5 monospace;resize:vertical}
+summary{cursor:pointer;font:600 16px Arial,sans-serif;color:#c2d0c8}
 @media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}}
 </style>
@@ -469,6 +471,11 @@ button:hover{background:#37604e}
 <button onclick="restoreAuto('Mist Maker')">Mist maker auto</button>
 <button onclick="restoreAuto('Pump','ro')">RO auto</button>
 </div><p id="message" role="status" aria-live="polite"></p></section>
+<details class="panel"><summary>Climate settings (JSON)</summary>
+<p>Edit the active JSON profile. Changes are validated, saved to the settings file, and applied immediately.</p>
+<textarea id="settings-json" spellcheck="false" aria-label="Terrarium settings JSON"></textarea>
+<div class="buttons"><button onclick="loadSettings()">Reload</button><button onclick="saveSettings()">Save and apply</button></div>
+<p id="settings-message" role="status" aria-live="polite"></p></details>
 <section class="panel"><h2>Recent history</h2><div id="history" class="grid"></div></section>
 <section class="panel" id="camera-panel"><h2>Camera</h2><img id="camera" alt="Terrarium camera unavailable"></section>
 </main>
@@ -479,15 +486,19 @@ const sensorState=document.querySelector('#sensor-state');
 const alarms=document.querySelector('#alarms');
 const actuators=document.querySelector('#actuators');
 const message=document.querySelector('#message');
+const settingsEditor=document.querySelector('#settings-json');
+const settingsMessage=document.querySelector('#settings-message');
 const history=document.querySelector('#history');
 const sensorDetails=document.querySelector('#sensor-details');
 const cameraUrl=__CAMERA_URL__;
-function averageReading(sensors,prefix){
- const readings=Object.entries(sensors||{}).filter(([name,value])=>name.startsWith(prefix)&&typeof value==='number'&&Number.isFinite(value)).map(([,value])=>value);
+let activeSensorSettings={temperature_prefixes:['temperature'],humidity_prefixes:['humidity_'],labels:{}};
+function averageReading(sensors,prefixes){
+ const readings=Object.entries(sensors||{}).filter(([name,value])=>prefixes.some(prefix=>name.startsWith(prefix))&&typeof value==='number'&&Number.isFinite(value)).map(([,value])=>value);
  return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
 }
 function showReading(element,value){element.textContent=value===null?'--':value.toFixed(1);}
-function card(name,value,extra=''){return `<div class="item">${name}<strong class="${extra}">${value}</strong></div>`;}
+function escapeHtml(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;");}
+function card(name,value,extra=''){return `<div class="item">${escapeHtml(name)}<strong class="${extra}">${escapeHtml(value)}</strong></div>`;}
 function outputState(value){return value==='ON'?'ON':'OFF';}
 const sensorLabels={
  temperature_left:'Temperature left',
@@ -511,11 +522,32 @@ const sensorUnits={
  soil_right:'%',
  aquarium_temp:'°C'
 };
+function setSensorSettings(settings){
+ activeSensorSettings={
+  temperature_prefixes:settings?.temperature_prefixes||['temperature'],
+  humidity_prefixes:settings?.humidity_prefixes||['humidity_'],
+  labels:{...sensorLabels,...(settings?.labels||{})}
+ };
+}
 function renderSensors(sensors){
- const entries=Object.entries(sensorLabels).map(([key,label])=>[key,label,sensors[key]]);
+ const keys=new Set([...Object.keys(sensorLabels),...Object.keys(sensors||{})]);
+ const entries=[...keys].map(key=>{
+  const label=activeSensorSettings.labels?.[key]||sensorLabels[key]||key.replaceAll('_',' ');
+  const value=sensors[key];
+  const prefixes=activeSensorSettings.temperature_prefixes||[];
+  const humidityPrefixes=activeSensorSettings.humidity_prefixes||[];
+  const unit=prefixes.some(prefix=>key.startsWith(prefix))?'°C':humidityPrefixes.some(prefix=>key.startsWith(prefix))||key.startsWith('soil_')?'%':'';
+  return [key,label,value,unit];
+ });
  sensorDetails.innerHTML=entries.map(([key,label,value])=>{
   const numeric=typeof value==='number'&&Number.isFinite(value);
-  return card(label,numeric?`${value.toFixed(1)} ${sensorUnits[key]}`:'--','on');
+  const prefixes=activeSensorSettings.temperature_prefixes||[];
+  const humidityPrefixes=activeSensorSettings.humidity_prefixes||[];
+  const unit=sensorUnits[key]||(
+   prefixes.some(prefix=>key.startsWith(prefix))?'°C':
+   humidityPrefixes.some(prefix=>key.startsWith(prefix))||key.startsWith('soil_')?'%':''
+  );
+  return card(label,numeric?`${value.toFixed(1)} ${unit}`:'--','on');
  }).join('');
 }
 function renderStatus(status){
@@ -557,6 +589,31 @@ function override(actor, state){
 function restoreAuto(actorType,actorName=actorType){
  postAuto(actorType,actorName).catch(()=>{message.textContent='Auto mode failed';});
 }
+async function loadSettings(){
+ settingsMessage.textContent='Loading settings...';
+ try{
+  const response=await fetch('/api/settings',{cache:'no-store'});
+  if(!response.ok)throw new Error(await response.text());
+  const settings=await response.json();
+  setSensorSettings(settings.sensors);
+  settingsEditor.value=JSON.stringify(settings,null,2);
+  renderSensors(window.latestSensors||{});
+  settingsMessage.textContent='Settings loaded';
+ }catch(error){settingsMessage.textContent=`Settings unavailable: ${error.message}`;}
+}
+async function saveSettings(){
+ settingsMessage.textContent='Saving settings...';
+ try{
+  const settings=JSON.parse(settingsEditor.value);
+  const response=await fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(settings)});
+  if(!response.ok)throw new Error(await response.text());
+  const savedSettings=await response.json();
+  setSensorSettings(savedSettings.sensors);
+  settingsEditor.value=JSON.stringify(savedSettings,null,2);
+  renderSensors(window.latestSensors||{});
+  settingsMessage.textContent='Settings saved and applied';
+ }catch(error){settingsMessage.textContent=`Could not save settings: ${error.message}`;}
+}
 async function refresh(){
  try{
   const response=await fetch('/api/status',{cache:'no-store'});
@@ -566,9 +623,10 @@ async function refresh(){
   if(!historyResponse.ok)throw new Error('History request failed');
   renderHistory(await historyResponse.json());
   const sensors=status.esp32?.sensors||{};
+  window.latestSensors=sensors;
   renderSensors(sensors);
-  const temperatureValue=averageReading(sensors,'temperature_');
-  const humidityValue=averageReading(sensors,'humidity_');
+  const temperatureValue=averageReading(sensors,activeSensorSettings.temperature_prefixes||[]);
+  const humidityValue=averageReading(sensors,activeSensorSettings.humidity_prefixes||[]);
   showReading(temperature,temperatureValue);
   showReading(humidity,humidityValue);
   const hasReadings=temperatureValue!==null||humidityValue!==null;
@@ -588,6 +646,7 @@ async function refresh(){
  }
 }
 if(cameraUrl){document.querySelector('#camera').src=cameraUrl;}else{document.querySelector('#camera-panel').hidden=true;}
+loadSettings();
 refresh();
 window.setInterval(refresh,3000);
 </script>
@@ -713,6 +772,8 @@ loadPeriod('24h');
 class DashboardHandler(BaseHTTPRequestHandler):
     store: StatusStore
     override_callback: Any = None
+    settings_callback: Any = None
+    update_settings_callback: Any = None
     camera_url: str = ""
 
     def do_GET(self) -> None:
@@ -732,6 +793,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             content_type = "application/json"
         elif parsed_path.path == "/api/schedule":
             body = json.dumps(self.store.schedule()).encode("utf-8")
+            content_type = "application/json"
+        elif parsed_path.path == "/api/settings":
+            if self.settings_callback is None:
+                self.send_error(503, "Settings are unavailable")
+                return
+            body = json.dumps(self.settings_callback()).encode("utf-8")
             content_type = "application/json"
         elif parsed_path.path == "/api/status":
             body = json.dumps(self.store.snapshot()).encode("utf-8")
@@ -753,6 +820,27 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_PUT(self) -> None:
+        if self.path == "/api/settings":
+            if self.update_settings_callback is None:
+                self.send_error(503, "Settings are read-only")
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("settings must be a JSON object")
+                body = json.dumps(self.update_settings_callback(payload)).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_error(400, str(error))
+            except OSError:
+                self.send_error(500, "Could not persist settings")
+            return
         if self.path != "/api/schedule":
             self.send_error(404)
             return
@@ -794,13 +882,22 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return
 
 
-def start_dashboard(store: StatusStore, host: str = "0.0.0.0", port: int = 8080, override_callback: Any = None) -> ThreadingHTTPServer:
+def start_dashboard(
+    store: StatusStore,
+    host: str = "0.0.0.0",
+    port: int = 8080,
+    override_callback: Any = None,
+    settings_callback: Any = None,
+    update_settings_callback: Any = None,
+) -> ThreadingHTTPServer:
     handler = type(
         "TerrariumDashboardHandler",
         (DashboardHandler,),
         {
             "store": store,
-            "override_callback": override_callback,
+            "override_callback": staticmethod(override_callback),
+            "settings_callback": staticmethod(settings_callback),
+            "update_settings_callback": staticmethod(update_settings_callback),
             "camera_url": os.getenv("TERRARIUM_CAMERA_URL", ""),
         },
     )

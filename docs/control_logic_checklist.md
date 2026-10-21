@@ -81,11 +81,14 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 ## 6. Config / UI
 
 - [x] settings template is aanwezig
+- [x] klimaatinstellingen via JSON-editor in dashboard te wijzigen
+- [x] geldige JSON-instellingen worden atomair opgeslagen en direct toegepast
+- [x] sensorprefixen en Moxa DI/DO-mapping vanuit JSON in te stellen
 - [ ] profielnaam is zichtbaar
-- [ ] seizoen en tijdschema wijzigbaar
-- [ ] min/max temp en RH wijzigbaar
-- [ ] zon op / zon onder wijzigbaar
-- [ ] wijzigingen opgeslagen in config/json of UI-state
+- [x] seizoen en tijdschema wijzigbaar via JSON
+- [x] min/max temp en RH wijzigbaar via JSON
+- [x] zon op / zon onder wijzigbaar via JSON
+- [x] wijzigingen opgeslagen in config/json of UI-state
 
 ---
 

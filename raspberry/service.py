@@ -10,10 +10,12 @@ import signal
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .mqtt_controller import TerrariumMQTTController
 from .status_dashboard import StatusStore, start_dashboard
+from .terrarium_logic import TerrariumLogic
 
 
 LOGGER = logging.getLogger("terrarium.service")
@@ -33,6 +35,7 @@ class TerrariumMQTTService:
         broker: str,
         port: int = 1883,
         settings: Optional[dict[str, object]] = None,
+        settings_path: Optional[str] = None,
         status_port: Optional[int] = None,
         client_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
@@ -48,6 +51,12 @@ class TerrariumMQTTService:
         self.client = client_factory()
         self.controller = TerrariumMQTTController(broker=broker, settings=settings)
         self.controller.publish = self._publish
+        self.settings_path = Path(
+            settings_path
+            or os.getenv("TERRARIUM_SETTINGS_FILE", "terrarium_settings_template.json")
+        )
+        self.settings = json.loads(json.dumps(settings or {}))
+        self._settings_lock = threading.Lock()
         self.status = StatusStore()
         self.status_server = None
         self._light_schedule_stop = threading.Event()
@@ -110,6 +119,38 @@ class TerrariumMQTTService:
         result = self.controller.apply_override(payload)
         result["mode"] = "manual"
         return result
+
+    def get_settings(self) -> dict[str, object]:
+        """Return a detached copy of the active JSON settings."""
+        with self._settings_lock:
+            return json.loads(json.dumps(self.settings))
+
+    def apply_settings(self, settings: dict[str, object]) -> dict[str, object]:
+        """Validate, persist, and apply settings without restarting the service."""
+        self.controller.logic.validate_settings(settings)
+        document = json.loads(json.dumps(settings))
+        with self._settings_lock:
+            self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = self.settings_path.with_suffix(
+                f"{self.settings_path.suffix}.tmp"
+            )
+            try:
+                with temporary_path.open("w", encoding="utf-8") as settings_file:
+                    json.dump(document, settings_file, indent=2)
+                    settings_file.write("\n")
+                temporary_path.replace(self.settings_path)
+            except OSError:
+                LOGGER.exception("Could not persist settings to %s", self.settings_path)
+                raise
+            self.controller.replace_settings(document)
+            self.settings = document
+
+        self._publish(
+            "esp32/cmd/fans",
+            self.controller.logic.evaluate_fan_command(),
+        )
+        self.controller.publish_scheduled_lights()
+        return self.get_settings()
 
     def _on_connect(self, client: Any, userdata: Any, flags: Any, rc: int) -> None:
         if rc != MQTT_SUCCESS:
@@ -196,6 +237,8 @@ class TerrariumMQTTService:
             self.status,
             port=self.status_port,
             override_callback=self.apply_override,
+            settings_callback=self.get_settings,
+            update_settings_callback=self.apply_settings,
         )
         self.status.update(
             "mqtt",
@@ -244,12 +287,13 @@ def main() -> None:
     try:
         with open(args.settings, "r", encoding="utf-8") as settings_file:
             loaded_settings = json.load(settings_file)
-        if isinstance(loaded_settings, dict):
-            settings = loaded_settings
-        else:
-            LOGGER.warning("Settings file is not a JSON object: %s", args.settings)
-    except (OSError, json.JSONDecodeError) as error:
-        LOGGER.warning("Could not load settings file %s: %s", args.settings, error)
+        if not isinstance(loaded_settings, dict):
+            raise ValueError(f"Settings file is not a JSON object: {args.settings}")
+        settings = loaded_settings
+        TerrariumLogic.validate_settings(settings)
+    except (OSError, json.JSONDecodeError, ValueError):
+        LOGGER.exception("Could not load valid settings file %s", args.settings)
+        raise
 
     import paho.mqtt.client as mqtt
 
@@ -257,6 +301,7 @@ def main() -> None:
         args.broker,
         args.port,
         settings=settings,
+        settings_path=args.settings,
         client_factory=mqtt.Client,
     ).run()
 
