@@ -231,9 +231,16 @@ De standaard regenwoudgrenzen zijn:
 
 - gemiddelde RH onder 82%: `DO5 ON`
 - gemiddelde RH vanaf 90%: `DO5 OFF`
-- beregening volgt de ingestelde cyclus (`irrigation.cycle_minutes` en
-  `irrigation.duration_seconds`); bodemvochtmetingen zijn momenteel alleen
-  beschikbaar voor monitoring en sturen `DO4` niet aan.
+- gemiddelde luchtvochtigheid onder 82%: `DO4` beregent in cycli van 25 seconden,
+  met standaard 20 minuten tussen cycli
+- gemiddelde luchtvochtigheid vanaf 90%: `DO4 OFF`
+- elke ochtend start `DO4` een sproeibeurt van 25 seconden direct vóór de
+  ingestelde zonsopgang/lichtstart (`schedule.sunrise`), ook als de luchtvochtigheid
+  al 90% of hoger is
+- direct na die ochtendbesproeiing gaat `DO5` 20 minuten aan; de duur staat in
+  `mistmaker.morning_after_irrigation_minutes`. Lek- en reservoirbeveiliging blijven
+  van kracht
+- bodemvochtmetingen zijn alleen voor monitoring en sturen `DO4` niet aan
 
 Bij een gemiddelde temperatuur onder `safety.temperature_too_low_c` wordt
 `DO06` als warmtelamp ingeschakeld. Bij normale of te hoge temperatuur wordt

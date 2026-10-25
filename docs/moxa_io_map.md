@@ -81,11 +81,20 @@ vastgelegd. Lekdetectie (DI2) of alarm schakelt DO15 direct `OFF`.
 
 Beregening en mistmaker volgen een cyclus uit `terrarium_settings_template.json`
 (`irrigation.cycle_minutes` / `duration_seconds` en `mistmaker.max_runtime_minutes`
-/ `pause_minutes`). De beregeningscyclus wordt niet gestuurd door de
-bodemvochtsensoren; die waarden zijn momenteel alleen voor monitoring:
+/ `pause_minutes`). Bodemvochtsensoren worden niet gebruikt in de logica; die
+waarden zijn momenteel alleen voor monitoring:
 
-- Beregening volgt de ingestelde cyclus, mits reservoir OK en geen lekalarm
-- De mistmaker volgt de ingestelde cyclus en luchtvochtigheid
+- Gemiddelde luchtvochtigheid onder `irrigation.humidity_on_percent` → beregening
+  mag starten (`OK`)
+- Gemiddelde luchtvochtigheid vanaf `irrigation.humidity_off_percent` →
+  beregening wordt uitgeschakeld
+- Elke ochtend wordt 25 seconden vóór `schedule.sunrise` een sproeibeurt gestart;
+  `duration_seconds` bepaalt de duur en reservoir-/lekbeveiliging blijft actief
+- Direct na deze ochtendbesproeiing gaat DO5 gedurende
+  `mistmaker.morning_after_irrigation_minutes` (standaard 20 minuten) aan, mits
+  het mistmakerreservoir OK is en er geen lek-/veiligheidsalarm actief is
+- De mistmaker gebruikt dezelfde gemiddelde luchtvochtigheidssensoren, met zijn
+  eigen aan/uit-grenzen en cyclusinstellingen
 - DO4/DO5 zijn de activeringsuitgangen. DO11 (beregeningspomp) en DO12
   (mistmakerpomp) zijn afzonderlijke uitgangen en worden niet automatisch aan
   DO4/DO5 gekoppeld.

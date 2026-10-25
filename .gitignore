@@ -15,3 +15,6 @@ api/.python_packages/
 .env
 .env.*
 !.env.example
+
+# ESP32 WiFi and MQTT credentials
+/esp32/**/config.json

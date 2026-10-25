@@ -18,10 +18,16 @@ class TerrariumMQTTController:
         self.broker = broker or os.getenv("TERRARIUM_MQTT_BROKER", "127.0.0.1")
         self.logic = TerrariumLogic(settings=settings)
         self.manual_output_overrides: Dict[str, Dict[str, object]] = {}
+        self.last_irrigation_command = "OFF"
+        self.last_mistmaker_command: Optional[str] = None
 
     def update_settings(self, settings: Dict[str, object]) -> None:
         """Pass UI/profile changes to the live rule engine."""
         self.logic.update_settings(settings)
+
+    def replace_settings(self, settings: Dict[str, object]) -> None:
+        """Replace the active JSON profile and retain current runtime state."""
+        self.logic.replace_settings(settings)
 
     def publish(self, topic: str, payload: Dict[str, Any]) -> None:
         """Publish a JSON payload to the given MQTT topic.
@@ -39,14 +45,11 @@ class TerrariumMQTTController:
         light_outputs = self.logic.evaluate_moxa_light_outputs(current.strftime("%H:%M"))
         safe_outputs = {
             **light_outputs,
-            "do4": "OFF",
-            "do5": "OFF",
-            "do6": "OFF",
-            "do10": "OFF",
-            "do11": "OFF",
-            "do12": "OFF",
-            "do13": "OFF",
-            "do15": "OFF",
+            self.logic.output_key("irrigation"): "OFF",
+            self.logic.output_key("mistmaker"): "OFF",
+            self.logic.output_key("heater"): "OFF",
+            **self.logic._pump_outputs_off(),
+            self.logic.output_key("ro_fill"): "OFF",
             "mistmaker": "OFF",
             "beregening": "OFF",
             "alarm": True,
@@ -54,7 +57,51 @@ class TerrariumMQTTController:
         }
         self.publish("esp32/cmd/fans", fan_command)
         self.publish("esp32/cmd/lights", light_command)
-        self.publish("moxa/cmd/output", self.apply_output_overrides(safe_outputs))
+        self.publish_moxa_output(safe_outputs)
+
+    def publish_scheduled_lights(self, now: Optional[datetime] = None) -> None:
+        """Apply the current light schedule independently of sensor updates."""
+        current_time = (now or datetime.now()).strftime("%H:%M")
+        lights = self.logic.evaluate_light_command(current_time)
+        outputs = self.logic.evaluate_moxa_light_outputs(current_time)
+        self.publish("esp32/cmd/lights", lights)
+        self.publish_moxa_output(outputs)
+
+    def publish_scheduled_irrigation(self, now: Optional[datetime] = None) -> None:
+        """Update irrigation and post-irrigation mist timers without sensor updates."""
+        current = now or datetime.now()
+        timestamp = current.timestamp()
+        irrigation_output = self.logic.output_key("irrigation")
+        mistmaker_output = self.logic.output_key("mistmaker")
+        outputs: Dict[str, Any] = {
+            irrigation_output: self.logic.evaluate_irrigation_command(now=timestamp),
+        }
+        mistmaker = self.logic.evaluate_scheduled_morning_mistmaker(now=timestamp)
+        if mistmaker is not None:
+            outputs[mistmaker_output] = mistmaker
+        effective = self.apply_output_overrides(outputs)
+        changed_outputs = {
+            key: effective[key]
+            for key in (irrigation_output, mistmaker_output)
+            if key in effective
+            and effective[key] != (
+                self.last_irrigation_command
+                if key == irrigation_output
+                else self.last_mistmaker_command
+            )
+        }
+        if changed_outputs:
+            self.publish_moxa_output(changed_outputs)
+
+    def publish_moxa_output(self, payload: Dict[str, Any]) -> None:
+        effective = self.apply_output_overrides(payload)
+        self.publish("moxa/cmd/output", effective)
+        irrigation_output = self.logic.output_key("irrigation")
+        mistmaker_output = self.logic.output_key("mistmaker")
+        if irrigation_output in effective:
+            self.last_irrigation_command = str(effective[irrigation_output])
+        if mistmaker_output in effective:
+            self.last_mistmaker_command = str(effective[mistmaker_output])
 
     def apply_output_overrides(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Merge active manual Moxa outputs while allowing them to expire."""
@@ -118,13 +165,13 @@ class TerrariumMQTTController:
                 outputs[output] = "ON" if state else "OFF"
                 requested_minutes = max(0.0, float(payload.get("duration_minutes", 0)))
                 # Protect the rain and mist pumps from running longer than they can handle.
-                if output in {"do5", "do12"}:
+                if output == self.logic.output_key("mistmaker_pump"):
                     requested_minutes = min(requested_minutes, float(self.logic.mistmaker_settings.get("max_runtime_minutes", 10)))
-                elif output == "do11":
+                elif output == self.logic.output_key("irrigation_pump"):
                     requested_minutes = min(requested_minutes, float(self.logic.irrigation_settings.get("max_runtime_minutes", 10)))
                 expires_at = time.time() + requested_minutes * 60
                 self.manual_output_overrides[output] = {"state": outputs[output], "expires_at": expires_at}
-            self.publish("moxa/cmd/output", outputs)
+            self.publish_moxa_output(outputs)
 
         expiry = None
         if actor_type == "Fan" and channel.isdigit() and 1 <= int(channel) <= 6:
@@ -136,20 +183,20 @@ class TerrariumMQTTController:
             expiry = self.manual_output_overrides[output].get("expires_at")
         return {"status": "applied", "actor_type": actor_type, "actor_name": actor_name, "state": state, "intensity": intensity, "expires_at": expiry}
 
-    @staticmethod
-    def _output_for_actor(actor_type: str, actor_name: str) -> Optional[str]:
+    def _output_for_actor(self, actor_type: str, actor_name: str) -> Optional[str]:
         return {
-            "Heat Lamp": "do6",
-            "Mist Maker": "do5",
-            "Atomizer": "do5",
+            "Heat Lamp": self.logic.output_key("heater"),
+            "Mist Maker": self.logic.output_key("mistmaker"),
+            "Atomizer": self.logic.output_key("mistmaker"),
             "Pump": {
-                "fill-mist": "do12",
-                "fill-irrigation": "do11",
-                "waterfall": "do10",
-                "irrigation": "do11",
-                "mistmaker": "do12",
-                "aquarium": "do13",
-                "fill-aquarium": "do13",
+                "fill-mist": self.logic.output_key("mistmaker_pump"),
+                "fill-irrigation": self.logic.output_key("irrigation_pump"),
+                "waterfall": self.logic.output_key("waterfall"),
+                "irrigation": self.logic.output_key("irrigation_pump"),
+                "mistmaker": self.logic.output_key("mistmaker_pump"),
+                "aquarium": self.logic.output_key("aquarium_fill"),
+                "fill-aquarium": self.logic.output_key("aquarium_fill"),
+                "ro": self.logic.output_key("ro_fill"),
             }.get(actor_name),
         }.get(actor_type)
 
@@ -164,19 +211,8 @@ class TerrariumMQTTController:
             self.logic.update_sensor_state(data)
             command = self.logic.evaluate_fan_command()
             self.publish("esp32/cmd/fans", command)
-            current_time = datetime.now().strftime("%H:%M")
-            lights = self.logic.evaluate_light_command(current_time)
-            self.publish("esp32/cmd/lights", lights)
-            self.publish(
-                "moxa/cmd/output",
-                self.apply_output_overrides(
-                    self.logic.evaluate_moxa_light_outputs(current_time)
-                ),
-            )
-            self.publish(
-                "moxa/cmd/output",
-                self.apply_output_overrides(self.logic.evaluate_moxa_outputs()),
-            )
+            self.publish_scheduled_lights()
+            self.publish_moxa_output(self.logic.evaluate_moxa_outputs())
             return command
 
         if topic == "esp32/status":
@@ -189,7 +225,7 @@ class TerrariumMQTTController:
 
         if topic == "moxa/status":
             actions = self.logic.evaluate_moxa_state(data)
-            self.publish("moxa/cmd/output", self.apply_output_overrides(actions))
+            self.publish_moxa_output(actions)
             return actions
 
         return {"status": "ignored", "reason": "unknown_topic"}
