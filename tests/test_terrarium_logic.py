@@ -259,26 +259,53 @@ class TerrariumLogicTests(unittest.TestCase):
         )
         self.assertEqual(
             {key for key in moxa_commands[1] if key.startswith("do")},
-            {"do4", "do5", "do6", "do15"},
+            {"do4", "do5", "do6", "do10", "do11", "do12", "do13", "do15"},
         )
 
-    def test_ro_valve_fills_between_min_and_max_floats(self):
+    def test_ro_valve_stays_off_without_minimum_level_input(self):
         logic = TerrariumLogic()
         logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": False, "di3": False, "di4": False})
-        self.assertEqual(logic.evaluate_ro_command()["do15"], "ON")
+        self.assertEqual(logic.evaluate_ro_command()["do15"], "OFF")
 
         logic.moxa_state["di3"] = True
-        self.assertEqual(logic.evaluate_ro_command()["do15"], "ON")
+        self.assertEqual(logic.evaluate_ro_command()["do15"], "OFF")
 
         logic.moxa_state["di4"] = True
         self.assertEqual(logic.evaluate_ro_command()["do15"], "OFF")
 
         logic.moxa_state["di3"] = False
         logic.moxa_state["di4"] = False
-        self.assertEqual(logic.evaluate_ro_command()["do15"], "ON")
+        self.assertEqual(logic.evaluate_ro_command()["do15"], "OFF")
 
         logic.moxa_state["di2"] = True
         self.assertEqual(logic.evaluate_ro_command()["do15"], "OFF")
+
+    def test_aquarium_fill_pump_runs_only_while_di3_is_pressed(self):
+        logic = TerrariumLogic()
+        released = logic.evaluate_moxa_state({
+            "di0": True, "di1": True, "di2": False, "di3": False, "di4": False,
+        })
+        pressed = logic.evaluate_moxa_state({
+            "di0": True, "di1": True, "di2": False, "di3": True, "di4": False,
+        })
+
+        self.assertEqual(released["do13"], "OFF")
+        self.assertEqual(pressed["do13"], "ON")
+
+    def test_moxa_status_publishes_aquarium_pump_button_state(self):
+        controller = TerrariumMQTTController()
+        published = []
+        controller.publish = lambda topic, payload: published.append((topic, payload))
+
+        controller.handle_message(
+            "moxa/status",
+            json.dumps({"di0": True, "di1": True, "di2": False, "di3": True, "di4": False}),
+        )
+
+        moxa_commands = [
+            payload for topic, payload in published if topic == "moxa/cmd/output"
+        ]
+        self.assertEqual(moxa_commands[-1]["do13"], "ON")
 
     def test_unwired_reservoir_floats_default_to_ok(self):
         logic = TerrariumLogic()
@@ -288,21 +315,23 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertFalse(outputs["alarm"])
 
-    def test_irrigation_is_blocked_when_soil_is_too_wet(self):
+    def test_irrigation_cycle_ignores_soil_readings(self):
         logic = TerrariumLogic()
         logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": False})
-        logic.update_sensor_state({"soil_left": 60})
+        logic.update_sensor_state({"soil_left": 100, "soil_right": 100})
 
         command = logic.evaluate_moxa_outputs(now=0)
 
-        self.assertEqual(command["do4"], "OFF")
+        self.assertEqual(command["do4"], "ON")
         self.assertEqual(command["reason"], "sensor_control")
+        self.assertEqual(logic.sensor_state["soil_left"], 100)
 
     def test_mist_and_irrigation_follow_frequency_and_duration_settings(self):
         logic = TerrariumLogic({
             "mistmaker": {"max_runtime_minutes": 1, "pause_minutes": 1},
             "irrigation": {"cycle_minutes": 1, "duration_seconds": 30},
         })
+        logic.random_source = lambda: 1.0
         logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": False, "di3": True, "di4": False})
         logic.update_sensor_state({"humidity_top": 70, "soil_left": 20})
 
@@ -349,7 +378,28 @@ class TerrariumLogicTests(unittest.TestCase):
             "state": True,
         })
         self.assertEqual(published[-1][0], "moxa/cmd/output")
-        self.assertEqual(published[-1][1]["do7"], "ON")
+        self.assertEqual(published[-1][1]["do10"], "ON")
+
+        controller.apply_override({
+            "actor_type": "Pump",
+            "actor_name": "irrigation",
+            "state": True,
+        })
+        self.assertEqual(published[-1][1]["do11"], "ON")
+
+        controller.apply_override({
+            "actor_type": "Pump",
+            "actor_name": "mistmaker",
+            "state": True,
+        })
+        self.assertEqual(published[-1][1]["do12"], "ON")
+
+        controller.apply_override({
+            "actor_type": "Pump",
+            "actor_name": "aquarium",
+            "state": True,
+        })
+        self.assertEqual(published[-1][1]["do13"], "ON")
 
     def test_mist_maker_override_is_capped_to_protect_the_pump(self):
         controller = TerrariumMQTTController(broker="example.local")
@@ -378,7 +428,7 @@ class TerrariumLogicTests(unittest.TestCase):
             "duration_minutes": 45,
         })
 
-        expires_at = controller.manual_output_overrides["do4"]["expires_at"]
+        expires_at = controller.manual_output_overrides["do11"]["expires_at"]
         self.assertLessEqual(expires_at - before, 10 * 60 + 1)
 
     def test_rainforest_transition_steps(self):

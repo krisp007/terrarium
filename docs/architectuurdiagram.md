@@ -279,7 +279,7 @@ Voorbeeld payload:
 - DI0 = Vlotter mistmaker
 - DI1 = Vlotter beregening
 - DI2 = Lekdetectie
-- DI3 = Vlotter min RO
+- DI3 = Drukknop aquarium vullen
 - DI4 = Vlotter max RO
 
 ## 7.2 Digitale uitgangen
@@ -290,14 +290,14 @@ Voorbeeld payload:
 - DO3 = LED Rechts voeding
 - DO4 = Beregening
 - DO5 = Mistmaker
-- DO6 = Warmtelamp
-- DO7 = Watervalpomp
+- DO6 = Warmtelamp 1
+- DO7 = Warmtelamp 2
 - DO8 = Reserve
-- DO9 = Pomp 1 mistmaker
-- DO10 = Pomp 2 beregening
-- DO11 = Pomp 3
-- DO12 = Pomp 4
-- DO13 = Reserve
+- DO9 = Reserve
+- DO10 = Pomp 1 waterval
+- DO11 = Pomp 2 beregening
+- DO12 = Pomp 3 mistmaker
+- DO13 = Pomp 4 aquarium vullen zolang DI3 is ingedrukt
 - DO14 = Reserve
 - DO15 = WaterValve RO
 

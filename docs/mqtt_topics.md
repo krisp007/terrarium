@@ -231,8 +231,9 @@ De standaard regenwoudgrenzen zijn:
 
 - gemiddelde RH onder 82%: `DO5 ON`
 - gemiddelde RH vanaf 90%: `DO5 OFF`
-- gemiddelde bodemvochtigheid onder 35%: `DO4 ON`
-- gemiddelde bodemvochtigheid vanaf 55%: `DO4 OFF`
+- beregening volgt de ingestelde cyclus (`irrigation.cycle_minutes` en
+  `irrigation.duration_seconds`); bodemvochtmetingen zijn momenteel alleen
+  beschikbaar voor monitoring en sturen `DO4` niet aan.
 
 Bij een gemiddelde temperatuur onder `safety.temperature_too_low_c` wordt
 `DO06` als warmtelamp ingeschakeld. Bij normale of te hoge temperatuur wordt

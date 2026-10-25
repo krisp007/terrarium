@@ -42,7 +42,10 @@ class TerrariumMQTTController:
             "do4": "OFF",
             "do5": "OFF",
             "do6": "OFF",
-            "do7": "OFF",
+            "do10": "OFF",
+            "do11": "OFF",
+            "do12": "OFF",
+            "do13": "OFF",
             "do15": "OFF",
             "mistmaker": "OFF",
             "beregening": "OFF",
@@ -115,9 +118,9 @@ class TerrariumMQTTController:
                 outputs[output] = "ON" if state else "OFF"
                 requested_minutes = max(0.0, float(payload.get("duration_minutes", 0)))
                 # Protect the rain and mist pumps from running longer than they can handle.
-                if output == "do5":
+                if output in {"do5", "do12"}:
                     requested_minutes = min(requested_minutes, float(self.logic.mistmaker_settings.get("max_runtime_minutes", 10)))
-                elif output == "do4":
+                elif output == "do11":
                     requested_minutes = min(requested_minutes, float(self.logic.irrigation_settings.get("max_runtime_minutes", 10)))
                 expires_at = time.time() + requested_minutes * 60
                 self.manual_output_overrides[output] = {"state": outputs[output], "expires_at": expires_at}
@@ -139,7 +142,15 @@ class TerrariumMQTTController:
             "Heat Lamp": "do6",
             "Mist Maker": "do5",
             "Atomizer": "do5",
-            "Pump": {"fill-mist": "do4", "fill-irrigation": "do5", "waterfall": "do7", "irrigation": "do4"}.get(actor_name),
+            "Pump": {
+                "fill-mist": "do12",
+                "fill-irrigation": "do11",
+                "waterfall": "do10",
+                "irrigation": "do11",
+                "mistmaker": "do12",
+                "aquarium": "do13",
+                "fill-aquarium": "do13",
+            }.get(actor_name),
         }.get(actor_type)
 
     def handle_message(self, topic: str, payload: str) -> Dict[str, Any]:

@@ -170,14 +170,14 @@ Controleer:
 | DO3 | LED Rechts voeding | lichtschakeling |
 | DO4 | Beregening | irrigatie systeem |
 | DO5 | Mistmaker | waterpijpleiding |
-| DO6 | Warmtelamp | veiligheid / warmte |
-| DO7 | Watervalpomp | waterstroom / bijzonder circuit |
+| DO6 | Warmtelamp 1 | veiligheid / warmte |
+| DO7 | Warmtelamp 2 | veiligheid / warmte |
 | DO8 | Reserve | vrije output |
-| DO9 | Pomp 1 mistmaker | toekomstige of extra pompfunctie |
-| DO10 | Pomp 2 beregening | toekomstige of extra pompfunctie |
-| DO11 | Pomp 3 | reserve |
-| DO12 | Pomp 4 | reserve |
-| DO13 | Reserve | vrije output |
+| DO9 | Reserve | vrije output |
+| DO10 | Pomp 1 (12V DC) waterval | waterstroom / extra circulatie |
+| DO11 | Pomp 2 (12V DC) beregening | druppelaar boomstam |
+| DO12 | Pomp 3 (12V DC) mistmaker | mistmakerpomp |
+| DO13 | Pomp 4 (12V DC) aquarium | aquarium vullen zolang DI3 is ingedrukt |
 | DO14 | Reserve | vrije output |
 | DO15 | WaterValve RO | RO-waterafsluiting of RO-voeding |
 

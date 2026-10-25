@@ -62,8 +62,6 @@ class TerrariumLogic:
         self.heartbeat_timeout_seconds = 180
         self.mistmaker_on_humidity = 82.0
         self.mistmaker_off_humidity = 90.0
-        self.irrigation_on_soil = 35.0
-        self.irrigation_off_soil = 55.0
         self.fan_thresholds: Dict[str, float] = dict(DEFAULT_FAN_THRESHOLDS)
         self.fan_levels: Dict[str, int] = dict(DEFAULT_FAN_LEVELS)
         self.heater_thresholds: Dict[str, float] = dict(DEFAULT_HEATER_THRESHOLDS)
@@ -168,7 +166,7 @@ class TerrariumLogic:
         return self.moxa_state.get(key)
 
     def evaluate_ro_command(self) -> Dict[str, object]:
-        """Fill the RO reservoir via DO15 using hysteresis between the min/max floats."""
+        """Keep the RO valve closed until a minimum-level/start input is defined."""
         if self.moxa_state is None:
             self.ro_filling = False
             return {"do15": "OFF", "reason": "moxa_status_unknown"}
@@ -177,15 +175,8 @@ class TerrariumLogic:
             self.ro_filling = False
             return {"do15": "OFF", "reason": "leak_detected"}
 
-        level_above_min = self._di_value("di3")
-        level_at_max = self._di_value("di4")
-
-        if level_at_max is True:
-            self.ro_filling = False
-        elif level_above_min is False:
-            self.ro_filling = True
-
-        return {"do15": "ON" if self.ro_filling else "OFF", "reason": "filling" if self.ro_filling else "idle"}
+        self.ro_filling = False
+        return {"do15": "OFF", "reason": "minimum_level_input_missing"}
 
     def evaluate_moxa_state(self, payload: Dict[str, object]) -> Dict[str, object]:
         """Apply safety rules from the Moxa digital inputs."""
@@ -200,6 +191,10 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do10": "OFF",
+                "do11": "OFF",
+                "do12": "OFF",
+                "do13": "OFF",
                 "do15": "OFF",
                 "alarm": True,
                 "reason": "leak_detected",
@@ -209,16 +204,22 @@ class TerrariumLogic:
         irrigation = "OFF" if self._di_value("di1") is False else "ON"
         reservoir_alarm = mistmaker == "OFF" or irrigation == "OFF"
 
-        return {
+        actions = {
             "mistmaker": mistmaker,
             "beregening": irrigation,
             "do4": irrigation,
             "do5": mistmaker,
+            "do13": "ON" if self._di_value("di3") is True else "OFF",
             "do6": self.evaluate_heater_command()["state"],
             "do15": self.evaluate_ro_command()["do15"],
             "alarm": reservoir_alarm,
             "reason": "reservoir_low" if reservoir_alarm else "normal",
         }
+        if mistmaker == "OFF":
+            actions["do12"] = "OFF"
+        if irrigation == "OFF":
+            actions["do11"] = "OFF"
+        return actions
 
     def _evaluate_mist_cycle(self, humidity: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
         """Run the mistmaker for max_runtime_minutes, then pause for pause_minutes."""
@@ -240,19 +241,16 @@ class TerrariumLogic:
             return "ON", "cycle_start"
         return "OFF", "cycle_pause"
 
-    def _evaluate_irrigation_cycle(self, soil: Optional[float], reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
-        """Run irrigation for duration_seconds every cycle_minutes while soil is too low."""
+    def _evaluate_irrigation_cycle(self, reservoir_ok: bool, rainstorm_active: bool, now: float) -> tuple[str, str]:
+        """Run irrigation on its configured cycle, independent of soil readings."""
         if not reservoir_ok or not self.irrigation_settings.get("enabled", True):
             self.irrigation_run_until = 0.0
             return "OFF", "reservoir_low" if not reservoir_ok else "disabled"
         if rainstorm_active:
             return "ON", "rainstorm"
-        if soil is not None and soil >= self.irrigation_off_soil:
-            self.irrigation_run_until = 0.0
-            return "OFF", "soil_ok"
         if now < self.irrigation_run_until:
             return "ON", "cycle_running"
-        if now >= self.irrigation_next_cycle and (soil is None or soil < self.irrigation_on_soil):
+        if now >= self.irrigation_next_cycle:
             duration = max(0.0, float(self.irrigation_settings.get("duration_seconds", 25)))
             cycle = max(0.0, float(self.irrigation_settings.get("cycle_minutes", 20))) * 60
             self.irrigation_run_until = now + duration
@@ -267,11 +265,6 @@ class TerrariumLogic:
             value for key, value in self.sensor_state.items()
             if key.startswith("humidity_")
         ]
-        soil_values = [
-            value for key, value in self.sensor_state.items()
-            if key.startswith("soil_")
-        ]
-
         if self.moxa_state is not None and (
             self._di_value("di2") is True or self.moxa_state.get("alarm") is True
         ):
@@ -282,6 +275,10 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do10": "OFF",
+                "do11": "OFF",
+                "do12": "OFF",
+                "do13": "OFF",
                 "do15": "OFF",
                 "mistmaker": "OFF",
                 "beregening": "OFF",
@@ -294,6 +291,10 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": self.evaluate_heater_command()["state"],
+                "do10": "OFF",
+                "do11": "OFF",
+                "do12": "OFF",
+                "do13": "OFF",
                 "do15": "OFF",
                 "mistmaker": "OFF",
                 "beregening": "OFF",
@@ -302,20 +303,20 @@ class TerrariumLogic:
             }
 
         humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
-        soil = sum(soil_values) / len(soil_values) if soil_values else None
         mist_reservoir_ok = self._di_value("di0") is not False
         irrigation_reservoir_ok = self._di_value("di1") is not False
 
         rainstorm = self.evaluate_rainstorm()
         mistmaker, _mist_reason = self._evaluate_mist_cycle(humidity, mist_reservoir_ok, rainstorm["active"], current_time)
-        irrigation, _irrigation_reason = self._evaluate_irrigation_cycle(soil, irrigation_reservoir_ok, rainstorm["active"], current_time)
+        irrigation, _irrigation_reason = self._evaluate_irrigation_cycle(irrigation_reservoir_ok, rainstorm["active"], current_time)
 
         reservoir_alarm = not mist_reservoir_ok or not irrigation_reservoir_ok
 
-        return {
+        outputs = {
             "do4": irrigation,
             "do5": mistmaker,
             "do6": self.evaluate_heater_command()["state"],
+            "do13": "ON" if self._di_value("di3") is True else "OFF",
             "do15": self.evaluate_ro_command()["do15"],
             "mistmaker": mistmaker,
             "beregening": irrigation,
@@ -326,6 +327,11 @@ class TerrariumLogic:
                 else "sensor_control"
             ),
         }
+        if not mist_reservoir_ok:
+            outputs["do12"] = "OFF"
+        if not irrigation_reservoir_ok:
+            outputs["do11"] = "OFF"
+        return outputs
 
     def evaluate_rainstorm(
         self,
