@@ -2,8 +2,9 @@ from machine import I2C, Pin
 import json
 import time
 
-from Wifi import connect_to_wifi
-from mqtt_pi import connect_mqtt
+import sys
+import uselect
+from machine import WDT
 
 from sht30 import read_sht30
 from tca9548a import select_channel
@@ -12,7 +13,6 @@ from aquarium import read_aquarium_temp
 from soil import read_soil_left
 from soil import read_soil_right
 
-from heartbeat import send_heartbeat
 from pca9685 import PCA9685
 from vents import VentController
 
@@ -23,7 +23,7 @@ FAN_STARTUP_BOOST_PERCENT = 100
 FAN_STARTUP_BOOST_MS = 1000
 
 
-def handle_fan_command(topic, message):
+def handle_fan_command(message):
     """Apply per-channel fan commands, falling back to the shared level."""
     global vent_controller
     try:
@@ -52,9 +52,50 @@ def handle_fan_command(topic, message):
     except Exception as error:
         print("Fan command error", error)
 
-def configure_mqtt_client(mqtt_client):
-    mqtt_client.set_callback(handle_fan_command)
-    mqtt_client.subscribe("esp32/cmd/fans")
+# ---------------------------------
+# USB serial link (frames: "@" + JSON {"t": topic, "p": payload})
+# ---------------------------------
+
+SENSOR_INTERVAL_MS = 60000
+STATUS_INTERVAL_MS = 60000
+WATCHDOG_MS = 30000
+
+poller = uselect.poll()
+poller.register(sys.stdin, uselect.POLLIN)
+rx_buffer = ""
+
+
+def send_frame(topic, payload):
+    print("@" + json.dumps({"t": topic, "p": payload}))
+
+
+def handle_frame(line):
+    try:
+        frame = json.loads(line)
+    except Exception as error:
+        print("Bad frame", error)
+        return
+    if frame.get("t") == "esp32/cmd/fans":
+        handle_fan_command(json.dumps(frame.get("p", {})))
+
+
+def poll_serial():
+    """Read pending serial characters without blocking and dispatch frames."""
+    global rx_buffer
+    while poller.poll(0):
+        char = sys.stdin.read(1)
+        if not char:
+            return
+        if char == "\n":
+            line = rx_buffer.strip()
+            rx_buffer = ""
+            if line.startswith("@"):
+                handle_frame(line[1:])
+        elif len(rx_buffer) < 2048:
+            rx_buffer += char
+        else:
+            rx_buffer = ""
+
 
 # ---------------------------------
 # SHT30 helper
@@ -113,23 +154,6 @@ def build_payload(i2c):
 # Setup
 # ---------------------------------
 
-wifi_ok = connect_to_wifi()
-
-if wifi_ok:
-    print("WiFi connected")
-else:
-    print("WiFi failed, starting without network")
-
-client = connect_mqtt()
-
-if client is None:
-    print("MQTT connection failed")
-else:
-    print("MQTT connected")
-    configure_mqtt_client(client)
-    send_heartbeat(client)
-
-
 i2c = I2C(
     0,
     scl=Pin(22),
@@ -143,44 +167,36 @@ vent_controller = VentController(pca)
 
 print("I2C Scan:", i2c.scan())
 
+wdt = WDT(timeout=WATCHDOG_MS)
 
 # ---------------------------------
 # Main Loop
 # ---------------------------------
 
+last_sensors = time.ticks_add(time.ticks_ms(), -SENSOR_INTERVAL_MS)
+last_status = last_sensors
+
 while True:
 
-    try:
+    wdt.feed()
+    poll_serial()
+    now = time.ticks_ms()
 
-        if client is None:
-            client = connect_mqtt()
-            if client is not None:
-                configure_mqtt_client(client)
+    if time.ticks_diff(now, last_status) >= STATUS_INTERVAL_MS:
+        last_status = now
+        send_frame("esp32/status", {
+            "device": "esp32_sensor_node",
+            "status": "online",
+            "transport": "usb_serial",
+            "firmware": "2.0.0",
+        })
 
-        if client is not None:
-            client.check_msg()
-            payload = build_payload(i2c)
-            print("Payload OK")
-            print(payload)
-            if send_heartbeat(client):
-                print("Publishing MQTT")
-                client.publish(
-                    "esp32/sensors",
-                    json.dumps(payload)
-                )
-                print("MQTT Published")
-        else:
-            print("MQTT unavailable, skipping publish")
+    if time.ticks_diff(now, last_sensors) >= SENSOR_INTERVAL_MS:
+        last_sensors = now
+        try:
+            send_frame("esp32/sensors", build_payload(i2c))
+        except Exception as e:
+            print("ERROR:", e)
+        wdt.feed()
 
-    except Exception as e:
-
-        print("ERROR:")
-        print(e)
-
-    for _ in range(120):
-        if client is not None:
-            try:
-                client.check_msg()
-            except Exception as error:
-                print("MQTT command check error", error)
-        time.sleep(1)
+    time.sleep_ms(50)

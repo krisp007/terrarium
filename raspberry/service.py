@@ -65,9 +65,20 @@ class TerrariumMQTTService:
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
 
+        self.serial_bridge = None
+        if os.getenv("TERRARIUM_ESP32_SERIAL", "1") != "0":
+            from .serial_bridge import SerialBridge
+
+            self.serial_bridge = SerialBridge(
+                self._on_message, port=os.getenv("TERRARIUM_ESP32_PORT") or None
+            )
+
     def _publish(self, topic: str, payload: dict[str, Any]) -> None:
         """Publish controller output as a JSON MQTT message."""
         result = self.client.publish(topic, json.dumps(payload))
+        if topic.startswith("esp32/cmd/") and self.serial_bridge is not None:
+            if not self.serial_bridge.send(topic, payload):
+                LOGGER.warning("ESP32 serial link down, dropped %s", topic)
         self.status.update_nested("commands", topic, payload)
         self.status.record_state_change("command", payload, topic=topic)
         if "alarm" in payload:
@@ -225,6 +236,8 @@ class TerrariumMQTTService:
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")
         self._light_schedule_stop.set()
+        if self.serial_bridge is not None:
+            self.serial_bridge.stop()
         self.status.update("service", {"status": "stopping"})
         if self.status_server is not None:
             self.status_server.shutdown()
@@ -260,6 +273,8 @@ class TerrariumMQTTService:
         )
         light_schedule_thread.start()
         irrigation_schedule_thread.start()
+        if self.serial_bridge is not None:
+            self.serial_bridge.start()
         try:
             self.client.connect_async(self.broker, self.port, keepalive=60)
             self.client.loop_forever(retry_first_connection=True)

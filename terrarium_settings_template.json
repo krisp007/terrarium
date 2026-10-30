@@ -8,17 +8,21 @@
     "notes": "Rainforest terrarium profile with high humidity, frequent misting, and gentle airflow."
   },
   "schedule": {
-    "sunrise": "05:45",
-    "sunset": "18:15",
-    "day_start": "05:45",
-    "day_end": "18:15",
-    "night_start": "18:15",
-    "night_end": "05:45",
+    "sunrise": "07:45",
+    "sunset": "20:15",
+    "day_start": "07:45",
+    "day_end": "20:15",
+    "night_start": "20:15",
+    "night_end": "07:45",
     "auto_day_night": true
   },
   "sensors": {
-    "temperature_prefixes": ["temperature"],
-    "humidity_prefixes": ["humidity_"],
+    "temperature_prefixes": [
+      "temperature"
+    ],
+    "humidity_prefixes": [
+      "humidity_"
+    ],
     "labels": {
       "temperature_left": "Temperature left",
       "temperature_right": "Temperature right",
@@ -79,7 +83,7 @@
         "temperature": {
           "min_c": 20.5,
           "max_c": 23.5,
-          "target_c": 22.0
+          "target_c": 22
         },
         "humidity": {
           "min_percent": 82,
@@ -105,7 +109,7 @@
       "day": {
         "temperature": {
           "min_c": 23.5,
-          "max_c": 27.0,
+          "max_c": 27,
           "target_c": 25.2
         },
         "humidity": {
@@ -121,7 +125,7 @@
       },
       "night": {
         "temperature": {
-          "min_c": 20.0,
+          "min_c": 20,
           "max_c": 22.8,
           "target_c": 21.2
         },
@@ -142,16 +146,19 @@
     "auto_mode": true,
     "minimum_airflow": {
       "enabled": true,
-      "fans": [1, 6],
+      "fans": [
+        1,
+        6
+      ],
       "percent": 30,
       "alternate_seconds": 60,
       "purpose": "prevent_stagnant_air_and_mold"
     },
     "temp_thresholds_c": {
-      "low": 22.0,
+      "low": 22,
       "medium": 24.5,
-      "high": 27.0,
-      "max_safe": 30.0
+      "high": 27,
+      "max_safe": 30
     },
     "fan_levels_percent": {
       "off": 0,
@@ -250,7 +257,7 @@
     "leak_detected": "shutdown_mist_and_irrigation",
     "low_reservoir": "stop_pump_and_alarm",
     "no_heartbeat_timeout_sec": 180,
-    "temperature_too_low_c": 18.0,
+    "temperature_too_low_c": 18,
     "temperature_too_high_c": 30.5,
     "humidity_too_low_percent": 65,
     "humidity_too_high_percent": 99,
