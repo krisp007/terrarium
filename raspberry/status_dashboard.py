@@ -158,13 +158,28 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 .led-channel{padding:12px;background:#211f19;border:1px solid #665b38;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font:14px Arial,sans-serif}
 .led-channel.active{border-color:#f2cd73;color:#f2cd73}
 .led-level{font-weight:600;color:#f2f5ef}
+.climate-strip{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 12px}
+.climate-chip{padding:9px 12px;background:#1c3029;border:1px solid #385046;border-radius:6px;color:#c2d0c8;font:13px Arial,sans-serif}
+.climate-chip strong{color:#f2f5ef;margin-left:5px}
+.alarm-bar{padding:13px 16px;margin:0 0 16px;border:1px solid #50624b;border-radius:6px;background:#1c3029;color:#b5db9a;font:600 14px Arial,sans-serif}
+.alarm-bar.warning{border-color:#98763b;background:#332b1c;color:#f2cd73}
+.alarm-bar.critical{border-color:#a34e43;background:#351f1d;color:#ff9b89}
+.pump-board{margin-top:16px;padding:22px 24px;background:#1c3029;border:1px solid #385046;border-radius:8px}
+.pump-board h2{margin-bottom:14px}
+.pump-table{width:100%;border-collapse:collapse;font:14px Arial,sans-serif}
+.pump-table th,.pump-table td{padding:10px 8px;text-align:left;border-bottom:1px solid #385046}
+.pump-table th{color:#9eafa5;font-size:12px;font-weight:600}
+.pump-state{font-weight:700}.pump-state.on{color:#a7d879}.pump-state.off{color:#a9b8b0}
+.expected-runtime{color:#c2d0c8}
 @media(max-width:850px){.readings{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px;gap:18px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}.ventilation,.lighting{padding:18px}.fan-channels{grid-template-columns:repeat(3,minmax(0,1fr))}.ventilation-header,.lighting-header{align-items:flex-start;flex-direction:column}}
+@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px;gap:18px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}.ventilation,.lighting,.pump-board{padding:18px}.fan-channels{grid-template-columns:repeat(3,minmax(0,1fr))}.ventilation-header,.lighting-header{align-items:flex-start;flex-direction:column}.pump-table th,.pump-table td{padding:9px 4px;font-size:12px}}
 </style>
 </head>
 <body>
 <main>
 <header><div><div class="eyebrow">Terrarium climate</div><h1>Live readings</h1></div><div id="sensor-state" role="status" aria-live="polite">Waiting for sensor data</div></header>
+<div class="climate-strip"><div class="climate-chip">Season<strong id="season-status">--</strong></div><div class="climate-chip">Period<strong id="period-status">--</strong></div><div class="climate-chip">Targets<strong id="climate-targets">--</strong></div></div>
+<div id="alarm-bar" class="alarm-bar warning" role="status" aria-live="assertive">Checking alarm status...</div>
 <div class="readings">
 <article><h2>Air temperature</h2><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="temperature-left">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="temperature-middle">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="temperature-right">--</span><span class="sensor-unit">&#176;C</span></div></div></article>
 <article class="water"><h2>Aquarium temperature</h2><div class="value"><span id="aquarium-temperature">--</span><span class="unit">&#176;C</span></div></article>
@@ -180,6 +195,17 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 <p id="lighting-sequence" class="lighting-sequence">Dawn 05:45: LED2 -&gt; LED2+3 -&gt; all four over 20 min. Dusk 18:15: fade to off over 20 min.</p>
 <div class="led-channels"><div class="led-channel" id="led-1"><span>LED1</span><span class="led-level" id="led-1-level">--</span></div><div class="led-channel" id="led-2"><span>LED2</span><span class="led-level" id="led-2-level">--</span></div><div class="led-channel" id="led-3"><span>LED3</span><span class="led-level" id="led-3-level">--</span></div><div class="led-channel" id="led-4"><span>LED4</span><span class="led-level" id="led-4-level">--</span></div></div>
 </section>
+<section class="pump-board" aria-labelledby="pump-board-title">
+<h2 id="pump-board-title">Pump status</h2>
+<table class="pump-table"><thead><tr><th>Output</th><th>Status</th><th>Expected runtime</th></tr></thead><tbody>
+<tr id="pump-do4"><td>DO4 Rain</td><td class="pump-state" id="pump-do4-state">--</td><td class="expected-runtime" id="pump-do4-runtime">Up to 60 s</td></tr>
+<tr id="pump-do5"><td>DO5 Mist</td><td class="pump-state" id="pump-do5-state">--</td><td class="expected-runtime" id="pump-do5-runtime">10 min after scheduled rain</td></tr>
+<tr id="pump-do10"><td>DO10 Waterfall</td><td class="pump-state" id="pump-do10-state">--</td><td class="expected-runtime" id="pump-do10-runtime">--</td></tr>
+<tr id="pump-do11"><td>DO11 Orchid dripper</td><td class="pump-state" id="pump-do11-state">--</td><td class="expected-runtime" id="pump-do11-runtime">--</td></tr>
+<tr id="pump-do12"><td>DO12 Aquarium refill</td><td class="pump-state" id="pump-do12-state">--</td><td class="expected-runtime" id="pump-do12-runtime">While DI1 active</td></tr>
+<tr id="pump-do15"><td>DO15 RO valve</td><td class="pump-state" id="pump-do15-state">--</td><td class="expected-runtime" id="pump-do15-runtime">While DI0 active</td></tr>
+</tbody></table>
+</section>
 </main>
 <script>
 const temperature=document.querySelector('#temperature');
@@ -190,6 +216,10 @@ const fanState=document.querySelector('#fan-state');
 const fanSequence=document.querySelector('#fan-sequence');
 const lightState=document.querySelector('#light-state');
 const lightingSequence=document.querySelector('#lighting-sequence');
+const seasonStatus=document.querySelector('#season-status');
+const periodStatus=document.querySelector('#period-status');
+const climateTargets=document.querySelector('#climate-targets');
+const alarmBar=document.querySelector('#alarm-bar');
 const fanChannels=Array.from({length:6},(_,index)=>({
  element:document.querySelector(`#fan-${index+1}`),
  level:document.querySelector(`#fan-${index+1}-level`)
@@ -243,11 +273,52 @@ function showLightingStatus(commands){
     ?'Day/night sequence paused during manual control.'
     :'Dawn 05:45: LED2 -> LED2+3 -> all four over 20 min. Dusk 18:15: fade to off over 20 min.';
 }
+function showOperationalStatus(status){
+ const climate=status.climate||{};
+ seasonStatus.textContent=climate.season||'Unknown';
+ periodStatus.textContent=climate.period||'Unknown';
+ climateTargets.textContent=typeof climate.temperature_target==='number'&&typeof climate.humidity_target==='number'
+    ?`${climate.temperature_target.toFixed(1)} C / ${climate.humidity_target.toFixed(0)}% RH`
+    :'--';
+
+ const alarms=status.alarms||{};
+ const messages=Array.isArray(alarms.messages)?alarms.messages:[];
+ alarmBar.className=`alarm-bar ${alarms.severity||'warning'}`;
+ alarmBar.textContent=messages.length?messages.join(' · '):'No active alarms';
+
+ const commands=status.commands?.['moxa/cmd/output']||{};
+ const feedback=status.moxa?.outputs||{};
+ const rows=[4,5,10,11,12,15];
+ for(const output of rows){
+    const channel=`DO@DO-${String(output).padStart(2,'0')}`;
+    const value=feedback[channel];
+    const state=value===0||value===1||typeof value==='boolean'
+     ?(Boolean(value)?'ON':'OFF')
+     :(commands[`do${output}`]||'--');
+    const stateElement=document.querySelector(`#pump-do${output}-state`);
+    stateElement.textContent=state;
+    stateElement.classList.toggle('on',state==='ON');
+    stateElement.classList.toggle('off',state==='OFF');
+ }
+
+ const pumpSchedules=status.pump_schedule||{};
+ for(const output of [10,11]){
+    const pump=pumpSchedules[`do${output}`];
+    const runtime=document.querySelector(`#pump-do${output}-runtime`);
+    if(!pump){runtime.textContent='Schedule unavailable';continue;}
+    if(!pump.enabled){runtime.textContent=`Disabled · ${pump.duration_seconds}s / ${pump.cycle_minutes} min configured`;continue;}
+    const remaining=Number(pump.remaining_run_seconds||0);
+    const next=Number(pump.next_run_seconds);
+    const timing=remaining>0?`${Math.ceil(remaining)} s remaining`:Number.isFinite(next)?`next in ${Math.ceil(next/60)} min`:'';
+    runtime.textContent=`${pump.duration_seconds} s every ${pump.cycle_minutes} min${timing?` · ${timing}`:''}`;
+ }
+}
 async function refresh(){
  try{
   const response=await fetch('/api/status',{cache:'no-store'});
   if(!response.ok)throw new Error('Status request failed');
   const status=await response.json();
+    showOperationalStatus(status);
     showFanStatus(status.commands);
     showLightingStatus(status.commands);
   const sensors=status.esp32?.sensors||{};
@@ -264,6 +335,8 @@ async function refresh(){
   sensorState.classList.toggle('offline',!hasReadings||stale);
   sensorState.textContent=!hasReadings?'Waiting for sensor data':stale?'Sensor data is stale':'Updated '+new Date(lastSeen*1000).toLocaleTimeString();
  }catch{
+    alarmBar.className='alarm-bar critical';
+    alarmBar.textContent='Pi status unavailable';
     showFanStatus(null);
     showLightingStatus(null);
   showReading(temperature,null);

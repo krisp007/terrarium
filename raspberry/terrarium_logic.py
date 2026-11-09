@@ -297,6 +297,44 @@ class TerrariumLogic:
             )
         return outputs
 
+    def scheduled_pump_status(
+        self,
+        now: Optional[float] = None,
+        moxa_online: bool = False,
+    ) -> Dict[str, Dict[str, object]]:
+        """Return configured cycle timing and current state for dashboard display."""
+        current_time = time.monotonic() if now is None else now
+        outputs = self.evaluate_scheduled_pump_outputs(current_time, moxa_online)
+        result: Dict[str, Dict[str, object]] = {}
+        for config_name, output_name in (("waterfall", "do10"), ("orchid_dripper", "do11")):
+            config = self.settings.get(config_name, {})
+            if not isinstance(config, dict):
+                config = {}
+            cycle_minutes = max(1.0, float(config.get("cycle_minutes", 90)))
+            duration_seconds = max(0.0, min(float(config.get("duration_seconds", 45)), cycle_minutes * 60))
+            result[output_name] = {
+                "name": "Waterfall pump" if output_name == "do10" else "Orchid dripper",
+                "enabled": config.get("enabled") is True and config.get("auto_mode") is True,
+                "state": outputs[output_name],
+                "cycle_minutes": cycle_minutes,
+                "duration_seconds": duration_seconds,
+                "next_run_seconds": None,
+                "remaining_run_seconds": 0.0,
+            }
+            started_at = self._pump_schedule_started_at.get(config_name)
+            if result[output_name]["enabled"] and moxa_online and started_at is not None:
+                elapsed = max(0.0, current_time - started_at)
+                cycle_seconds = cycle_minutes * 60
+                phase = elapsed % cycle_seconds
+                if elapsed >= cycle_seconds and phase < duration_seconds:
+                    result[output_name]["remaining_run_seconds"] = duration_seconds - phase
+                    result[output_name]["next_run_seconds"] = 0.0
+                else:
+                    result[output_name]["next_run_seconds"] = (
+                        cycle_seconds - elapsed if elapsed < cycle_seconds else cycle_seconds - phase
+                    )
+        return result
+
     def _scheduled_rain_event(
         self,
         current: datetime,

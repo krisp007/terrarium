@@ -98,12 +98,20 @@ class TerrariumLogicTests(unittest.TestCase):
         })
         logic.evaluate_moxa_state({"di2": False, "alarm": False})
 
+        pump_status = logic.scheduled_pump_status(now=0, moxa_online=True)
+        running_status = logic.scheduled_pump_status(now=5401, moxa_online=True)
         before = logic.evaluate_scheduled_pump_outputs(now=0, moxa_online=True)
         due = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=True)
         last_active_second = logic.evaluate_scheduled_pump_outputs(now=5444, moxa_online=True)
         expired = logic.evaluate_scheduled_pump_outputs(now=5445, moxa_online=True)
 
         self.assertEqual(before, {"do10": "OFF", "do11": "OFF"})
+        self.assertFalse(pump_status["do10"]["enabled"])
+        self.assertTrue(pump_status["do11"]["enabled"])
+        self.assertEqual(pump_status["do11"]["cycle_minutes"], 90)
+        self.assertEqual(pump_status["do11"]["duration_seconds"], 45)
+        self.assertEqual(pump_status["do11"]["next_run_seconds"], 5400)
+        self.assertEqual(running_status["do11"]["remaining_run_seconds"], 44)
         self.assertEqual(due, {"do10": "OFF", "do11": "ON"})
         self.assertEqual(last_active_second["do11"], "ON")
         self.assertEqual(expired["do11"], "OFF")
@@ -760,6 +768,11 @@ class TerrariumLogicTests(unittest.TestCase):
         service.controller.logic.evaluate_moxa_state({"di2": False, "alarm": False})
 
         service._on_connect(client, None, {}, 0)
+        dashboard = service.status.snapshot()
+        self.assertEqual(dashboard["climate"]["season"], "rainy")
+        self.assertEqual(dashboard["pump_schedule"]["do11"]["cycle_minutes"], 90)
+        self.assertEqual(dashboard["pump_schedule"]["do11"]["duration_seconds"], 45)
+        self.assertIn("ESP32 offline", dashboard["alarms"]["messages"])
         scheduler = service._pump_scheduler_thread
         service.stop()
 

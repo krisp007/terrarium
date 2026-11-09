@@ -62,6 +62,7 @@ class TerrariumMQTTService:
             "do11": None,
         }
         self.status.update("service", {"status": "online", "started_at": int(time.time())})
+        self._refresh_dashboard_status()
 
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
@@ -126,6 +127,7 @@ class TerrariumMQTTService:
         self.status.update("mqtt", {"status": "connected", "broker": f"{self.broker}:{self.port}"})
         self.controller.publish_current_state(now=datetime.now())
         self._start_pump_scheduler()
+        self._refresh_dashboard_status()
         LOGGER.info("Connected to MQTT broker %s:%s", self.broker, self.port)
 
     def _on_message(self, client: Any, userdata: Any, message: Any) -> None:
@@ -134,10 +136,12 @@ class TerrariumMQTTService:
             if message.topic == "ioThinx_4510/read/lastwill":
                 self.status.update("moxa", {"status": "offline", "last_seen": int(time.time())})
                 self.status.record("moxa_status", {"status": "offline"}, topic=message.topic)
+                self._refresh_dashboard_status()
                 return
             if message.topic.startswith("ioThinx_4510/read/"):
                 self._update_moxa_reading(message.topic, payload)
                 self._handle_moxa_input(message.topic, payload)
+                self._refresh_dashboard_status()
                 return
             if message.topic == "esp32/sensors":
                 sensor_data = json.loads(payload)
@@ -160,6 +164,7 @@ class TerrariumMQTTService:
                 })
                 self.status.record("moxa_status", moxa_status, topic=message.topic)
             result = self.controller.handle_message(message.topic, payload)
+            self._refresh_dashboard_status()
             LOGGER.debug("Handled %s: %s", message.topic, result)
         except Exception:
             LOGGER.exception("Failed to handle MQTT message on %s", message.topic)
@@ -230,6 +235,54 @@ class TerrariumMQTTService:
         self._last_scheduled_pump_outputs.update(outputs)
         if changed:
             self._publish("moxa/cmd/output", changed)
+        self._refresh_dashboard_status(now=now)
+
+    def _refresh_dashboard_status(self, now: Optional[float] = None) -> None:
+        current = datetime.now() if now is None else datetime.fromtimestamp(now)
+        logic = self.controller.logic
+        targets = logic._active_climate_targets(current)
+        snapshot = self.status.snapshot()
+        moxa = snapshot.get("moxa", {})
+        moxa_online = moxa.get("status") == "online"
+        pump_schedule = logic.scheduled_pump_status(moxa_online=moxa_online)
+        for output, schedule in (("do10", "DO@DO-10"), ("do11", "DO@DO-11")):
+            feedback = moxa.get("outputs", {}).get(schedule)
+            if feedback in (0, 1, False, True):
+                pump_schedule[output]["state"] = "ON" if bool(feedback) else "OFF"
+            pump_schedule[output]["feedback"] = feedback
+
+        messages = []
+        if snapshot.get("mqtt", {}).get("status") != "connected":
+            messages.append("MQTT disconnected")
+        if snapshot.get("esp32", {}).get("status") != "online":
+            messages.append("ESP32 offline")
+        if not moxa_online:
+            messages.append("Moxa offline")
+        inputs = moxa.get("inputs", {})
+        leak = inputs.get("DI@DI-02", inputs.get("di2"))
+        command = snapshot.get("commands", {}).get(MOXA_OUTPUT_TOPIC, {})
+        leak_active = leak is True or leak == 1
+        command_alarm = command.get("alarm") is True
+        if leak_active or (command_alarm and command.get("reason") == "leak_detected"):
+            messages.append("Leak alarm active")
+        elif command_alarm and command.get("reason") not in ("startup_safe_state", "moxa_status_unknown"):
+            messages.append(str(command.get("reason", "Safety alarm active")))
+
+        self.status.update("climate", {
+            "season": targets["season"],
+            "period": targets["period"],
+            "temperature_target": targets["temperature_target"],
+            "humidity_min": targets["humidity_min"],
+            "humidity_target": targets["humidity_target"],
+            "sunrise": targets["sunrise"].strftime("%H:%M"),
+            "sunset": targets["sunset"].strftime("%H:%M"),
+        })
+        self.status.update("pump_schedule", pump_schedule)
+        self.status.update("alarms", {
+            "active": bool(messages),
+            "severity": "warning" if messages else "ok",
+            "messages": messages,
+        })
 
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")
