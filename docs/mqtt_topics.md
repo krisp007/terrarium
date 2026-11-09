@@ -219,8 +219,10 @@ Bij een gemiddelde temperatuur onder `safety.temperature_too_low_c` wordt
 `DO06` uitgeschakeld. Een lek- of veiligheidsalarm heeft voorrang en schakelt
 `DO06` uit.
 
-Een lek (`DI2`) of laag reservoir (`DI0` / `DI1`) heeft altijd prioriteit en
-blokkeert de bijbehorende uitgang.
+Een lek (`DI2`) heeft altijd prioriteit en schakelt DO12 en DO15 uit. DI0 is de
+RO-vlotter: alleen bij actieve DI0 zonder lekalarm wordt DO15 `ON`. DI1 is de
+aquarium-bijvulvlotter: alleen bij actieve DI1 zonder lekalarm wordt DO12 `ON`.
+Bij inactieve of ontbrekende DI0/DI1 blijven de bijbehorende uitgangen `OFF`.
 
 Tijdens het regenseizoen kan de regelengine willekeurig een korte regenbui
 starten. De instellingen staan onder `seasons.rainy.rainstorm`:

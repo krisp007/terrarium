@@ -96,8 +96,8 @@ Functie:
 
 #### Digitale ingangen
 
-- DI0 = Vlotter mistmaker
-- DI1 = Vlotter beregening
+- DI0 = Vlotter RO-vat; actief opent DO15 tenzij DI2 lekalarm actief is
+- DI1 = Aquarium bijvulvlotter; actief stuurt DO12
 - DI2 = Lekdetectie
 - DI3 = Vlotter min RO
 - DI4 = Vlotter max RO

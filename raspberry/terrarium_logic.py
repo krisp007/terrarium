@@ -117,22 +117,18 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do12": "OFF",
+                "do15": "OFF",
                 "alarm": True,
                 "reason": "leak_detected",
             }
 
-        mistmaker = "OFF" if payload.get("di0") is False else "ON"
-        irrigation = "OFF" if payload.get("di1") is False else "ON"
-        reservoir_alarm = mistmaker == "OFF" or irrigation == "OFF"
-
         return {
-            "mistmaker": mistmaker,
-            "beregening": irrigation,
-            "do4": irrigation,
-            "do5": mistmaker,
             "do6": self.evaluate_heater_command()["state"],
-            "alarm": reservoir_alarm,
-            "reason": "reservoir_low" if reservoir_alarm else "normal",
+            "do12": "ON" if payload.get("di1") is True else "OFF",
+            "do15": "ON" if payload.get("di0") is True else "OFF",
+            "alarm": False,
+            "reason": "normal",
         }
 
     def evaluate_moxa_outputs(self) -> Dict[str, object]:
@@ -153,6 +149,8 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do12": "OFF",
+                "do15": "OFF",
                 "mistmaker": "OFF",
                 "beregening": "OFF",
                 "alarm": True,
@@ -164,6 +162,8 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": self.evaluate_heater_command()["state"],
+                "do12": "OFF",
+                "do15": "OFF",
                 "mistmaker": "OFF",
                 "beregening": "OFF",
                 "alarm": True,
@@ -190,27 +190,17 @@ class TerrariumLogic:
             if soil >= self.irrigation_off_soil:
                 irrigation = "OFF"
 
-        if self.moxa_state is not None:
-            if self.moxa_state.get("di0") is False:
-                mistmaker = "OFF"
-            if self.moxa_state.get("di1") is False:
-                irrigation = "OFF"
-
-        reservoir_alarm = (
-            self.moxa_state is not None
-            and (self.moxa_state.get("di0") is False or self.moxa_state.get("di1") is False)
-        )
-
         return {
             "do4": irrigation,
             "do5": mistmaker,
             "do6": self.evaluate_heater_command()["state"],
+            "do12": "ON" if self.moxa_state.get("di1") is True else "OFF",
+            "do15": "ON" if self.moxa_state.get("di0") is True else "OFF",
             "mistmaker": mistmaker,
             "beregening": irrigation,
-            "alarm": reservoir_alarm,
+            "alarm": False,
             "reason": (
-                "reservoir_low" if reservoir_alarm
-                else "rainstorm" if rainstorm["active"]
+                "rainstorm" if rainstorm["active"]
                 else "sensor_control"
             ),
         }
@@ -231,8 +221,6 @@ class TerrariumLogic:
         if self.moxa_state is not None and (
             self.moxa_state.get("di2") is True
             or self.moxa_state.get("alarm") is True
-            or self.moxa_state.get("di0") is False
-            or self.moxa_state.get("di1") is False
         ):
             return {**inactive, "reason": "safety_block"}
         if current_time < self.rainstorm_until:

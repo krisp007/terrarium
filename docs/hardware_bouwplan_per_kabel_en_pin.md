@@ -154,8 +154,8 @@ Controleer:
 
 | Input | Functie | Doel |
 |-------|---------|------|
-| DI0 | Mistmaker reservoir | niveau controle |
-| DI1 | Beregening reservoir | niveau controle |
+| DI0 | RO-vat vlotter | actief geeft permissie aan RO-ventiel DO15 |
+| DI1 | Aquarium bijvulvlotter | actief stuurt bijvulpomp DO12 |
 | DI2 | Lekdetectie | alarm op waterlek |
 
 > Opmerking: deze signalen worden rechtstreeks op de Moxa aangesloten. De ESP32 heeft hier geen directe GPIO-positie voor in de sensorkaart.

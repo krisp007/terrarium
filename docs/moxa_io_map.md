@@ -13,8 +13,8 @@ MQTT-broker: `192.168.24.166:1883`
 
 | Input | Functie | Beschrijving |
 |-------|---------|-------------|
-| DI0 | Vlotter mistmaker | Controleert of het mistmakerreservoir voldoende gevuld is |
-| DI1 | Vlotter beregening | Controleert of het beregeningsreservoir voldoende gevuld is |
+| DI0 | Vlotter RO-vat | Actief geeft toestemming om het RO-ventiel te openen |
+| DI1 | Aquarium bijvulvlotter | Actief vraagt bijvullen van het aquarium aan |
 | DI2 | Lekdetectie | Geeft alarm bij waterlek |
 | DI3 | Vlotter min RO | RO-reservoir minimaal niveau |
 | DI4 | Vlotter max RO | RO-reservoir maximaal niveau |
@@ -37,10 +37,10 @@ MQTT-broker: `192.168.24.166:1883`
 | DO9 | Pomp 1 mistmaker | Toekomstige of extra pompfunctie |
 | DO10 | Pomp 2 beregening | Toekomstige of extra pompfunctie |
 | DO11 | Pomp 3 | Reserve |
-| DO12 | Pomp 4 | Reserve |
+| DO12 | Aquarium bijvulpomp | Bekrachtigd = aquarium bijvullen |
 | DO13 | Reserve | Vrije output |
 | DO14 | Reserve | Vrije output |
-| DO15 | WaterValve RO | RO-waterafsluiting of RO-voeding |
+| DO15 | WaterValve RO | Bekrachtigd = RO-ventiel open |
 
 ---
 
@@ -62,6 +62,18 @@ Acties:
 
 - pomp stoppen
 - alarm genereren
+
+### RO-vat en RO-ventiel
+
+- DI0 actief en geen lekalarm: DO15 `ON` (ventiel bekrachtigd/open)
+- DI0 inactief of onbekend: DO15 `OFF` (ventiel spanningsloos/gesloten)
+- DI2 lekalarm: DO15 `OFF`, ongeacht DI0
+
+### Aquarium bijvullen
+
+- DI1 actief en geen lekalarm: DO12 `ON`
+- DI1 inactief of onbekend: DO12 `OFF`
+- DI2 lekalarm: DO12 `OFF`, ongeacht DI1
 
 ### RO-niveau buiten bereik
 

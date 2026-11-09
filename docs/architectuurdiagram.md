@@ -276,8 +276,8 @@ Voorbeeld payload:
 
 ## 7.1 Digitale ingangen
 
-- DI0 = Vlotter mistmaker
-- DI1 = Vlotter beregening
+- DI0 = Vlotter RO-vat; actief opent DO15 tenzij DI2 lekalarm actief is
+- DI1 = Aquarium bijvulvlotter; actief stuurt DO12
 - DI2 = Lekdetectie
 - DI3 = Vlotter min RO
 - DI4 = Vlotter max RO
@@ -383,8 +383,8 @@ Aantal:
 
 ## 7.1 Digitale ingangen
 
-- DI0 = Mistmaker niveau
-- DI1 = Beregening niveau
+- DI0 = RO-vat niveau / permissie voor RO-ventiel DO15
+- DI1 = Aquarium bijvulverzoek voor DO12
 - DI2 = Lekdetectie
 
 ## 7.2 Digitale uitgangen
@@ -549,13 +549,13 @@ Realtime uitgangen
 
 DI0
 
-Mistmaker niveau
+RO-vat niveau / permissie voor DO15
 
 ---
 
 DI1
 
-Beregening niveau
+Aquarium bijvulverzoek voor DO12
 
 ---
 

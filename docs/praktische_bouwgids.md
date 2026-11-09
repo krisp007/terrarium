@@ -90,8 +90,8 @@ De Moxa moet als veiligheidslaag worden gezien. De kritische functies mogen niet
 
 Gebruikelijke ingangen:
 
-- DI0 = Mistmaker niveau
-- DI1 = Beregening niveau
+- DI0 = RO-vat niveau; actief opent DO15 tenzij DI2 lekalarm actief is
+- DI1 = Aquarium bijvulvlotter; actief stuurt DO12
 - DI2 = Lekdetectie
 
 Gebruikelijke uitgangen:

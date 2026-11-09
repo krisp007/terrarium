@@ -12,13 +12,43 @@ from raspberry.terrarium_logic import TerrariumLogic
 class TerrariumLogicTests(unittest.TestCase):
     def test_safe_mode_when_leak_detected(self):
         logic = TerrariumLogic()
-        payload = {"di2": True, "alarm": False}
+        payload = {"di0": True, "di2": True, "alarm": False}
 
         actions = logic.evaluate_moxa_state(payload)
 
         self.assertEqual(actions["mistmaker"], "OFF")
         self.assertEqual(actions["beregening"], "OFF")
+        self.assertEqual(actions["do15"], "OFF")
+        self.assertEqual(actions["do12"], "OFF")
         self.assertTrue(actions["alarm"])
+
+    def test_ro_valve_opens_only_when_di0_is_active(self):
+        logic = TerrariumLogic()
+
+        active = logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": False})
+        inactive = logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
+
+        self.assertEqual(active["do15"], "ON")
+        self.assertEqual(inactive["do15"], "OFF")
+
+    def test_ro_valve_defaults_closed_until_moxa_state_is_known(self):
+        logic = TerrariumLogic()
+
+        actions = logic.evaluate_moxa_outputs()
+
+        self.assertEqual(actions["do15"], "OFF")
+        self.assertEqual(actions["do12"], "OFF")
+
+    def test_aquarium_refill_pump_follows_di1_and_leak_interlock(self):
+        logic = TerrariumLogic()
+
+        active = logic.evaluate_moxa_state({"di1": True, "di2": False})
+        inactive = logic.evaluate_moxa_state({"di1": False, "di2": False})
+        leak = logic.evaluate_moxa_state({"di1": True, "di2": True})
+
+        self.assertEqual(active["do12"], "ON")
+        self.assertEqual(inactive["do12"], "OFF")
+        self.assertEqual(leak["do12"], "OFF")
 
     def test_fan_level_increases_with_temperature(self):
         logic = TerrariumLogic()
@@ -121,14 +151,36 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(storm["do5"], "ON")
         self.assertEqual(logic.evaluate_rainstorm(season="dry", now=1001, random_value=0.0)["active"], False)
 
-    def test_rainstorm_is_blocked_by_leak_or_empty_reservoir(self):
+    def test_rainstorm_is_blocked_by_leak(self):
         logic = TerrariumLogic()
-        logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
+        logic.evaluate_moxa_state({"di0": True, "di1": True, "di2": True})
 
         storm = logic.evaluate_rainstorm(now=1000, random_value=0.0)
 
         self.assertFalse(storm["active"])
         self.assertEqual(storm["reason"], "safety_block")
+
+    def test_inactive_ro_level_does_not_block_rainstorm_or_mistmaker(self):
+        logic = TerrariumLogic()
+        logic.update_sensor_state({"humidity_top": 70})
+        logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
+
+        storm = logic.evaluate_rainstorm(now=1000, random_value=0.0)
+        outputs = logic.evaluate_moxa_outputs()
+
+        self.assertTrue(storm["active"])
+        self.assertEqual(outputs["do5"], "ON")
+        self.assertEqual(outputs["do15"], "OFF")
+
+    def test_inactive_refill_input_does_not_block_irrigation(self):
+        logic = TerrariumLogic({"seasons": {"rainy": {"rainstorm": {"enabled": False}}}})
+        logic.update_sensor_state({"soil_left": 20})
+        logic.evaluate_moxa_state({"di1": False, "di2": False})
+
+        outputs = logic.evaluate_moxa_outputs()
+
+        self.assertEqual(outputs["do4"], "ON")
+        self.assertEqual(outputs["do12"], "OFF")
 
     def test_fan_levels_follow_editable_settings(self):
         logic = TerrariumLogic({
@@ -179,6 +231,8 @@ class TerrariumLogicTests(unittest.TestCase):
         lights = published[1][1]
         self.assertEqual(lights["brightness"], 80)
         self.assertTrue(published[2][1]["alarm"])
+        self.assertEqual(published[2][1]["do12"], "OFF")
+        self.assertEqual(published[2][1]["do15"], "OFF")
 
     def test_mqtt_controller_maps_sensor_and_safety_messages(self):
         controller = TerrariumMQTTController(broker="example.local")
@@ -198,14 +252,15 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(moxa_commands[-1]["reason"], "moxa_status_unknown")
 
         controller.handle_message("moxa/status", json.dumps({"di0": True, "di1": True, "di2": False}))
+        moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
+        self.assertEqual(moxa_commands[-1]["do15"], "ON")
         controller.handle_message("esp32/sensors", json.dumps({"temperature_top": 25, "humidity_top": 70}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
         self.assertEqual(moxa_commands[-1]["do5"], "ON")
 
         controller.handle_message("moxa/status", json.dumps({"di0": False, "di1": True, "di2": False}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
-        self.assertEqual(moxa_commands[-1]["do5"], "OFF")
-        self.assertTrue(moxa_commands[-1]["alarm"])
+        self.assertEqual(moxa_commands[-1]["do15"], "OFF")
 
         controller.handle_message("moxa/status", json.dumps({"di2": True, "alarm": False}))
         self.assertTrue(any(topic == "moxa/cmd/output" for topic, _ in published))
@@ -336,6 +391,18 @@ class TerrariumLogicTests(unittest.TestCase):
             "topic": "esp32/sensors",
             "payload": b'{"temperature_top": 30}',
         })())
+        client.on_message(client, None, type("Message", (), {
+            "topic": "moxa/status",
+            "payload": b'{"di0": true, "di1": false, "di2": false}',
+        })())
+        moxa_status = service.status.snapshot()["moxa"]
+        self.assertEqual(moxa_status["status"], "online")
+        self.assertTrue(moxa_status["inputs"]["di0"])
+        client.on_message(client, None, type("Message", (), {
+            "topic": "ioThinx_4510/read/lastwill",
+            "payload": b"",
+        })())
+        self.assertEqual(service.status.snapshot()["moxa"]["status"], "offline")
         self.assertEqual(client.published[0][0], "esp32/cmd/fans")
         service._publish("moxa/cmd/output", {"do5": "ON"})
         self.assertIn(

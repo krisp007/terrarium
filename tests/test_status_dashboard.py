@@ -26,6 +26,7 @@ class StatusDashboardTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.server_thread.join()
+        self.store._database.close()
         self.temporary_directory.cleanup()
 
     def test_root_serves_temperature_and_humidity_monitor(self):
@@ -33,7 +34,14 @@ class StatusDashboardTests(unittest.TestCase):
             page = response.read().decode("utf-8")
 
         self.assertIn("Air temperature", page)
+        self.assertIn("Aquarium temperature", page)
         self.assertIn("Humidity", page)
+        self.assertIn('id="temperature-left"', page)
+        self.assertIn('id="temperature-middle"', page)
+        self.assertIn('id="temperature-right"', page)
+        self.assertIn('id="humidity-left"', page)
+        self.assertIn('id="humidity-middle"', page)
+        self.assertIn('id="humidity-right"', page)
         self.assertIn("/api/status", page)
         self.assertNotIn("Moxa", page)
         self.assertNotIn("/api/history", page)

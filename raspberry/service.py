@@ -123,6 +123,10 @@ class TerrariumMQTTService:
     def _on_message(self, client: Any, userdata: Any, message: Any) -> None:
         try:
             payload = message.payload.decode("utf-8")
+            if message.topic == "ioThinx_4510/read/lastwill":
+                self.status.update("moxa", {"status": "offline", "last_seen": int(time.time())})
+                self.status.record("moxa_status", {"status": "offline"}, topic=message.topic)
+                return
             if message.topic.startswith("ioThinx_4510/read/"):
                 self._update_moxa_reading(message.topic, payload)
                 self._handle_moxa_input(message.topic, payload)
@@ -135,6 +139,18 @@ class TerrariumMQTTService:
                 esp_status = json.loads(payload)
                 self.status.update("esp32", {**esp_status, "last_seen": int(time.time())})
                 self.status.record("esp32_status", esp_status, topic=message.topic)
+            elif message.topic == "moxa/status":
+                moxa_status = json.loads(payload)
+                if not isinstance(moxa_status, dict):
+                    raise ValueError("Moxa status payload must be a JSON object")
+                current_inputs = self.status.snapshot()["moxa"].get("inputs", {})
+                digital_inputs = {key: value for key, value in moxa_status.items() if key.startswith("di")}
+                self.status.update("moxa", {
+                    "status": "online",
+                    "inputs": {**current_inputs, **digital_inputs},
+                    "last_seen": int(time.time()),
+                })
+                self.status.record("moxa_status", moxa_status, topic=message.topic)
             result = self.controller.handle_message(message.topic, payload)
             LOGGER.debug("Handled %s: %s", message.topic, result)
         except Exception:

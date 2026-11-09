@@ -42,6 +42,8 @@ class TerrariumMQTTController:
             "do5": "OFF",
             "do6": "OFF",
             "do7": "OFF",
+            "do12": "OFF",
+            "do15": "OFF",
             "mistmaker": "OFF",
             "beregening": "OFF",
             "alarm": True,

@@ -127,28 +127,46 @@ h1{font-size:32px;font-weight:400;margin:0}
 .eyebrow{font:600 13px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:#9eafa5;margin-bottom:10px}
 #sensor-state{font:16px Arial,sans-serif;color:#9eafa5;text-align:right}
 #sensor-state.offline{color:#ff8b76}
-.readings{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-article{min-height:330px;padding:32px;background:#1c3029;border:1px solid #385046;border-radius:8px;display:flex;flex-direction:column;justify-content:space-between}
+.readings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+article{min-width:0;min-height:300px;padding:24px;background:#1c3029;border:1px solid #385046;border-radius:8px;display:flex;flex-direction:column;justify-content:space-between;gap:22px}
 article.humidity{background:#203039;border-color:#405764}
+article.water{background:#28372b;border-color:#53684e}
 h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
-.value{font:400 112px Georgia,serif;line-height:1;white-space:nowrap;color:#f2cd73}
+.value{font:400 72px Georgia,serif;line-height:1;white-space:nowrap;color:#f2cd73}
 .humidity .value{color:#78d5ce}
-.unit{font:400 38px Arial,sans-serif;margin-left:8px;color:#d4ddd7}
-@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}}
+.water .value{color:#a7d879}
+.unit{font:400 28px Arial,sans-serif;margin-left:6px;color:#d4ddd7}
+.sensor-breakdown{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:auto;padding-top:14px;border-top:1px solid #385046;font-family:Arial,sans-serif}
+.sensor-breakdown div{display:flex;align-items:baseline;gap:3px;white-space:nowrap}
+.sensor-label{color:#9eafa5;font-size:12px;margin-right:auto}
+.sensor-value{font-size:18px;color:#f2f5ef}
+.sensor-unit{font-size:12px;color:#a9b8b0}
+@media(max-width:850px){.readings{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px;gap:18px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}}
 </style>
 </head>
 <body>
 <main>
 <header><div><div class="eyebrow">Terrarium climate</div><h1>Live readings</h1></div><div id="sensor-state" role="status" aria-live="polite">Waiting for sensor data</div></header>
 <div class="readings">
-<article><h2>Air temperature</h2><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div></article>
-<article class="humidity"><h2>Humidity</h2><div class="value"><span id="humidity">--</span><span class="unit">%</span></div></article>
+<article><h2>Air temperature</h2><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="temperature-left">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="temperature-middle">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="temperature-right">--</span><span class="sensor-unit">&#176;C</span></div></div></article>
+<article class="water"><h2>Aquarium temperature</h2><div class="value"><span id="aquarium-temperature">--</span><span class="unit">&#176;C</span></div></article>
+<article class="humidity"><h2>Humidity</h2><div class="value"><span id="humidity">--</span><span class="unit">%</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="humidity-left">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="humidity-middle">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="humidity-right">--</span><span class="sensor-unit">%</span></div></div></article>
 </div>
 </main>
 <script>
 const temperature=document.querySelector('#temperature');
 const humidity=document.querySelector('#humidity');
+const aquariumTemperature=document.querySelector('#aquarium-temperature');
 const sensorState=document.querySelector('#sensor-state');
+const sensorReadings={
+ temperature_left:document.querySelector('#temperature-left'),
+ temperature_top:document.querySelector('#temperature-middle'),
+ temperature_right:document.querySelector('#temperature-right'),
+ humidity_left:document.querySelector('#humidity-left'),
+ humidity_top:document.querySelector('#humidity-middle'),
+ humidity_right:document.querySelector('#humidity-right')
+};
 function averageReading(sensors,prefix){
  const readings=Object.entries(sensors||{}).filter(([name,value])=>name.startsWith(prefix)&&typeof value==='number'&&Number.isFinite(value)).map(([,value])=>value);
  return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
@@ -162,9 +180,12 @@ async function refresh(){
   const sensors=status.esp32?.sensors||{};
   const temperatureValue=averageReading(sensors,'temperature_');
   const humidityValue=averageReading(sensors,'humidity_');
+    const aquariumValue=typeof sensors.aquarium_temp==='number'&&Number.isFinite(sensors.aquarium_temp)?sensors.aquarium_temp:null;
   showReading(temperature,temperatureValue);
   showReading(humidity,humidityValue);
-  const hasReadings=temperatureValue!==null||humidityValue!==null;
+    showReading(aquariumTemperature,aquariumValue);
+    for(const [name,element] of Object.entries(sensorReadings))showReading(element,typeof sensors[name]==='number'&&Number.isFinite(sensors[name])?sensors[name]:null);
+    const hasReadings=temperatureValue!==null||humidityValue!==null||aquariumValue!==null;
   const lastSeen=Number(status.esp32?.last_seen);
   const stale=!Number.isFinite(lastSeen)||Date.now()/1000-lastSeen>60;
   sensorState.classList.toggle('offline',!hasReadings||stale);
@@ -172,6 +193,8 @@ async function refresh(){
  }catch{
   showReading(temperature,null);
   showReading(humidity,null);
+    showReading(aquariumTemperature,null);
+    for(const element of Object.values(sensorReadings))showReading(element,null);
   sensorState.classList.add('offline');
   sensorState.textContent='Pi status unavailable';
  }
