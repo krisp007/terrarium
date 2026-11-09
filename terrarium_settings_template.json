@@ -219,7 +219,8 @@
   "safety": {
     "leak_detected": "shutdown_mist_and_irrigation",
     "low_reservoir": "stop_pump_and_alarm",
-    "no_heartbeat_timeout_sec": 180,
+    "sensor_stale_timeout_sec": 360,
+    "no_heartbeat_timeout_sec": 960,
     "temperature_too_low_c": 18.0,
     "temperature_too_high_c": 30.5,
     "humidity_too_low_percent": 65,

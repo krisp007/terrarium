@@ -160,11 +160,9 @@ class TerrariumMQTTController:
             return command
 
         if topic == "esp32/status":
-            if isinstance(data, dict) and "timestamp" in data:
-                self.logic.update_heartbeat(int(data["timestamp"]))
-            else:
-                self.logic.update_heartbeat(0)
-            health = self.logic.evaluate_esp32_health(now=0)
+            received_at = int(time.time())
+            self.logic.update_heartbeat(received_at)
+            health = self.logic.evaluate_esp32_health(now=received_at)
             return health
 
         if topic == "moxa/status":

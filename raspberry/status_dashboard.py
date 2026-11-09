@@ -330,8 +330,9 @@ async function refresh(){
     showReading(aquariumTemperature,aquariumValue);
     for(const [name,element] of Object.entries(sensorReadings))showReading(element,typeof sensors[name]==='number'&&Number.isFinite(sensors[name])?sensors[name]:null);
     const hasReadings=temperatureValue!==null||humidityValue!==null||aquariumValue!==null;
-  const lastSeen=Number(status.esp32?.last_seen);
-  const stale=!Number.isFinite(lastSeen)||Date.now()/1000-lastSeen>60;
+    const lastSeen=Number(status.esp32?.last_sensor_seen??status.esp32?.last_seen);
+    const staleAfter=Number(status.climate?.sensor_stale_timeout_seconds??360);
+    const stale=!Number.isFinite(lastSeen)||Date.now()/1000-lastSeen>staleAfter;
   sensorState.classList.toggle('offline',!hasReadings||stale);
   sensorState.textContent=!hasReadings?'Waiting for sensor data':stale?'Sensor data is stale':'Updated '+new Date(lastSeen*1000).toLocaleTimeString();
  }catch{

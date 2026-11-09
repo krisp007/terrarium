@@ -145,11 +145,22 @@ class TerrariumMQTTService:
                 return
             if message.topic == "esp32/sensors":
                 sensor_data = json.loads(payload)
-                self.status.update("esp32", {"status": "online", "sensors": sensor_data, "last_seen": int(time.time())})
+                received_at = int(time.time())
+                self.status.update("esp32", {
+                    "status": "online",
+                    "sensors": sensor_data,
+                    "last_seen": received_at,
+                    "last_sensor_seen": received_at,
+                })
                 self.status.record("esp32_sensors", sensor_data, topic=message.topic)
             elif message.topic == "esp32/status":
                 esp_status = json.loads(payload)
-                self.status.update("esp32", {**esp_status, "last_seen": int(time.time())})
+                received_at = int(time.time())
+                self.status.update("esp32", {
+                    **esp_status,
+                    "last_seen": received_at,
+                    "last_status_seen": received_at,
+                })
                 self.status.record("esp32_status", esp_status, topic=message.topic)
             elif message.topic == "moxa/status":
                 moxa_status = json.loads(payload)
@@ -238,11 +249,23 @@ class TerrariumMQTTService:
         self._refresh_dashboard_status(now=now)
 
     def _refresh_dashboard_status(self, now: Optional[float] = None) -> None:
-        current = datetime.now() if now is None else datetime.fromtimestamp(now)
+        now_seconds = time.time() if now is None else now
+        current = datetime.fromtimestamp(now_seconds)
         logic = self.controller.logic
         targets = logic._active_climate_targets(current)
         snapshot = self.status.snapshot()
         moxa = snapshot.get("moxa", {})
+        esp32 = snapshot.get("esp32", {})
+        last_seen = esp32.get("last_seen")
+        heartbeat_timed_out = False
+        if (
+            esp32.get("status") == "online"
+            and isinstance(last_seen, (int, float))
+            and now_seconds - last_seen > logic.heartbeat_timeout_seconds
+        ):
+            self.status.update("esp32", {"status": "offline"})
+            esp32["status"] = "offline"
+            heartbeat_timed_out = True
         moxa_online = moxa.get("status") == "online"
         pump_schedule = logic.scheduled_pump_status(moxa_online=moxa_online)
         for output, schedule in (("do10", "DO@DO-10"), ("do11", "DO@DO-11")):
@@ -254,8 +277,11 @@ class TerrariumMQTTService:
         messages = []
         if snapshot.get("mqtt", {}).get("status") != "connected":
             messages.append("MQTT disconnected")
-        if snapshot.get("esp32", {}).get("status") != "online":
-            messages.append("ESP32 offline")
+        if esp32.get("status") != "online":
+            messages.append("ESP32 heartbeat timeout" if heartbeat_timed_out else "ESP32 offline")
+        sensor_seen = esp32.get("last_sensor_seen", last_seen)
+        if not isinstance(sensor_seen, (int, float)) or now_seconds - sensor_seen > logic.sensor_stale_timeout_seconds:
+            messages.append("ESP32 sensor data stale")
         if not moxa_online:
             messages.append("Moxa offline")
         inputs = moxa.get("inputs", {})
@@ -274,6 +300,8 @@ class TerrariumMQTTService:
             "temperature_target": targets["temperature_target"],
             "humidity_min": targets["humidity_min"],
             "humidity_target": targets["humidity_target"],
+            "sensor_stale_timeout_seconds": logic.sensor_stale_timeout_seconds,
+            "heartbeat_timeout_seconds": logic.heartbeat_timeout_seconds,
             "sunrise": targets["sunrise"].strftime("%H:%M"),
             "sunset": targets["sunset"].strftime("%H:%M"),
         })

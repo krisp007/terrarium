@@ -480,6 +480,32 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertTrue(actions["alarm"])
         self.assertEqual(actions["status"], "offline")
 
+    def test_esp32_status_heartbeat_uses_receive_time_when_payload_has_no_timestamp(self):
+        controller = TerrariumMQTTController(broker="example.local")
+
+        health = controller.handle_message(
+            "esp32/status",
+            json.dumps({"device": "esp32_sensor_node", "status": "online"}),
+        )
+
+        self.assertEqual(health["status"], "online")
+        self.assertIsNotNone(controller.logic.last_heartbeat)
+        self.assertLessEqual(
+            abs(int(datetime.now().timestamp()) - controller.logic.last_heartbeat),
+            1,
+        )
+
+    def test_sensor_and_heartbeat_timeouts_load_from_settings(self):
+        logic = TerrariumLogic({
+            "safety": {
+                "sensor_stale_timeout_sec": 360,
+                "no_heartbeat_timeout_sec": 960,
+            },
+        })
+
+        self.assertEqual(logic.sensor_stale_timeout_seconds, 360)
+        self.assertEqual(logic.heartbeat_timeout_seconds, 960)
+
     def test_startup_state_uses_current_time_and_safe_outputs(self):
         controller = TerrariumMQTTController(broker="example.local")
         published = []
@@ -655,10 +681,18 @@ class TerrariumLogicTests(unittest.TestCase):
             "topic": "esp32/sensors",
             "payload": b'{"temperature_top": 30}',
         })())
+        esp32_status = service.status.snapshot()["esp32"]
+        self.assertIn("last_sensor_seen", esp32_status)
         client.on_message(client, None, type("Message", (), {
             "topic": "moxa/status",
             "payload": b'{"di0": true, "di1": false, "di2": false}',
         })())
+        client.on_message(client, None, type("Message", (), {
+            "topic": "esp32/status",
+            "payload": b'{"device":"esp32_sensor_node","status":"online"}',
+        })())
+        esp32_status = service.status.snapshot()["esp32"]
+        self.assertIn("last_status_seen", esp32_status)
         moxa_status = service.status.snapshot()["moxa"]
         self.assertEqual(moxa_status["status"], "online")
         self.assertTrue(moxa_status["inputs"]["di0"])
@@ -778,6 +812,38 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertIsNotNone(scheduler)
         self.assertFalse(scheduler.is_alive())
+
+    def test_service_uses_separate_sensor_and_heartbeat_timeouts(self):
+        class FakeClient:
+            def publish(self, _topic, _payload):
+                return type("PublishResult", (), {"rc": 0})()
+
+            def disconnect(self):
+                return None
+
+        service = TerrariumMQTTService(
+            "example.local",
+            settings={"safety": {"sensor_stale_timeout_sec": 360, "no_heartbeat_timeout_sec": 960}},
+            client_factory=FakeClient,
+        )
+        service.status.update("mqtt", {"status": "connected"})
+        service.status.update("moxa", {"status": "online"})
+        service.status.update("esp32", {
+            "status": "online",
+            "last_seen": 1000,
+            "last_status_seen": 1000,
+            "last_sensor_seen": 1000,
+        })
+
+        service._refresh_dashboard_status(now=1361)
+        stale_status = service.status.snapshot()
+        self.assertEqual(stale_status["esp32"]["status"], "online")
+        self.assertIn("ESP32 sensor data stale", stale_status["alarms"]["messages"])
+
+        service._refresh_dashboard_status(now=1961)
+        offline_status = service.status.snapshot()
+        self.assertEqual(offline_status["esp32"]["status"], "offline")
+        self.assertIn("ESP32 heartbeat timeout", offline_status["alarms"]["messages"])
 
     def test_status_store_returns_copy_of_system_status(self):
         import tempfile

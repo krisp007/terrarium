@@ -48,7 +48,8 @@ class TerrariumLogic:
         self.sensor_state: Dict[str, float] = {}
         self.moxa_state: Optional[Dict[str, object]] = None
         self.last_heartbeat: Optional[int] = None
-        self.heartbeat_timeout_seconds = 180
+        self.heartbeat_timeout_seconds = 960
+        self.sensor_stale_timeout_seconds = 360
         self.mistmaker_on_humidity = 82.0
         self.mistmaker_off_humidity = 90.0
         self.irrigation_on_soil = 35.0
@@ -95,6 +96,12 @@ class TerrariumLogic:
                 value = safety.get(key)
                 if isinstance(value, (int, float)):
                     self.heater_thresholds[key] = float(value)
+            heartbeat_timeout = safety.get("no_heartbeat_timeout_sec")
+            if isinstance(heartbeat_timeout, (int, float)) and not isinstance(heartbeat_timeout, bool):
+                self.heartbeat_timeout_seconds = max(1, int(heartbeat_timeout))
+            sensor_stale_timeout = safety.get("sensor_stale_timeout_sec")
+            if isinstance(sensor_stale_timeout, (int, float)) and not isinstance(sensor_stale_timeout, bool):
+                self.sensor_stale_timeout_seconds = max(1, int(sensor_stale_timeout))
 
         seasons = settings.get("seasons", {})
         if isinstance(seasons, dict):
