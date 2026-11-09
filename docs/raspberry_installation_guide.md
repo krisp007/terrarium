@@ -310,6 +310,26 @@ Verwachte logregel:
 Connected to MQTT broker 192.168.24.166:1883
 ```
 
+De ESP32 kan daarnaast via USB-serieel met de Pi communiceren. De service-unit
+schakelt deze koppeling in met `TERRARIUM_ESP32_SERIAL=1` en gebruikt standaard
+`/dev/ttyUSB0` (`TERRARIUM_ESP32_PORT`). De unit draait met de aanvullende groep
+`dialout`; `pyserial` wordt via `requirements.txt` geïnstalleerd. De seriële
+verbinding gebruikt 115200 baud en newline-afgesloten `@`-JSON-frames.
+
+Controleer de USB-poort en de service:
+
+```bash
+ls -l /dev/serial/by-id/ /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+sudo journalctl -u terrarium-logic.service -f
+curl -s http://127.0.0.1:8080/api/status
+```
+
+De servicelog meldt `ESP32 serial connected on /dev/ttyUSB0` wanneer de poort
+geopend is. De status-API toont daarna `transport: usb_serial` bij de ESP32.
+Pas `TERRARIUM_ESP32_PORT` in de unit aan wanneer Linux een ander devicepad
+toekent; voer daarna `sudo systemctl daemon-reload` en
+`sudo systemctl restart terrarium-logic.service` uit.
+
 ## 16. Status UI
 
 De service biedt een eenvoudige klimaatweergave aan op het lokale scherm:

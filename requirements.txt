@@ -8,6 +8,7 @@ idna==3.19
 janus==2.0.0
 packaging==26.3
 paho-mqtt==1.6.1
+pyserial==3.5
 PySocks==1.7.1
 requests==2.34.2
 requests-unixsocket2==1.0.1

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 from .mqtt_controller import TerrariumMQTTController
+from .serial_bridge import SerialBridge
 from .status_dashboard import StatusStore, start_dashboard
 
 
@@ -45,6 +46,12 @@ class TerrariumMQTTService:
         self.client = client_factory()
         self.controller = TerrariumMQTTController(broker=broker, settings=settings)
         self.controller.publish = self._publish
+        self.serial_bridge: Optional[SerialBridge] = None
+        if os.getenv("TERRARIUM_ESP32_SERIAL", "0") == "1":
+            self.serial_bridge = SerialBridge(
+                self._on_message,
+                port=os.getenv("TERRARIUM_ESP32_PORT") or None,
+            )
         self.status = StatusStore()
         self.status_server = None
         self.status.update("service", {"status": "online", "started_at": int(time.time())})
@@ -55,6 +62,9 @@ class TerrariumMQTTService:
     def _publish(self, topic: str, payload: dict[str, Any]) -> None:
         """Publish controller output as a JSON MQTT message."""
         result = self.client.publish(topic, json.dumps(payload))
+        if topic.startswith("esp32/cmd/") and self.serial_bridge is not None:
+            if not self.serial_bridge.send(topic, payload):
+                LOGGER.warning("ESP32 serial link down, dropped %s", topic)
         self.status.update_nested("commands", topic, payload)
         self.status.record("command", payload, topic=topic)
         if hasattr(result, "rc") and result.rc != MQTT_SUCCESS:
@@ -156,6 +166,8 @@ class TerrariumMQTTService:
 
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")
+        if self.serial_bridge is not None:
+            self.serial_bridge.stop()
         self.status.update("service", {"status": "stopping"})
         if self.status_server is not None:
             self.status_server.shutdown()
@@ -169,6 +181,8 @@ class TerrariumMQTTService:
             port=self.status_port,
             override_callback=self.apply_override,
         )
+        if self.serial_bridge is not None:
+            self.serial_bridge.start()
         self.client.connect(self.broker, self.port, keepalive=60)
         self.client.loop_forever()
 

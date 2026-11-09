@@ -4,6 +4,7 @@ from datetime import datetime
 
 from raspberry.mqtt_controller import TerrariumMQTTController
 from raspberry.service import MOXA_READ_TOPIC, SUBSCRIPTIONS, TerrariumMQTTService
+from raspberry.serial_bridge import SerialBridge
 from raspberry.status_dashboard import StatusStore
 from raspberry.terrarium_logic import TerrariumLogic
 
@@ -341,7 +342,29 @@ class TerrariumLogicTests(unittest.TestCase):
             ("ioThinx_4510/write/DO@DO-05/doStatus", '{"value": 1}'),
             client.published,
         )
+        serial_frames = []
+        service.serial_bridge = type(
+            "FakeSerialBridge",
+            (),
+            {
+                "send": lambda _self, topic, payload: serial_frames.append((topic, payload)) or True,
+                "stop": lambda _self: None,
+            },
+        )()
+        service._publish("esp32/cmd/fans", {"level": 30})
+        self.assertEqual(serial_frames, [("esp32/cmd/fans", {"level": 30})])
         service.stop()
+
+    def test_serial_bridge_decodes_frames_and_ignores_console_output(self):
+        messages = []
+        bridge = SerialBridge(lambda _client, _userdata, message: messages.append(message))
+
+        bridge.handle_line("boot log text")
+        bridge.handle_line('@{"t":"esp32/sensors","p":{"temperature_top":24.5}}')
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].topic, "esp32/sensors")
+        self.assertEqual(messages[0].payload, b'{"temperature_top": 24.5}')
 
     def test_status_store_returns_copy_of_system_status(self):
         import tempfile
