@@ -42,6 +42,8 @@ class TerrariumMQTTController:
             "do5": "OFF",
             "do6": "OFF",
             "do7": "OFF",
+            "do10": "OFF",
+            "do11": "OFF",
             "do12": "OFF",
             "do15": "OFF",
             "mistmaker": "OFF",
@@ -133,7 +135,7 @@ class TerrariumMQTTController:
             "Heat Lamp": "do6",
             "Mist Maker": "do5",
             "Atomizer": "do5",
-            "Pump": {"fill-mist": "do4", "fill-irrigation": "do5", "waterfall": "do7", "irrigation": "do4"}.get(actor_name),
+            "Pump": {"fill-mist": "do4", "fill-irrigation": "do5", "waterfall": "do10", "irrigation": "do4"}.get(actor_name),
         }.get(actor_type)
 
     def handle_message(self, topic: str, payload: str) -> Dict[str, Any]:

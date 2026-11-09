@@ -207,22 +207,39 @@ De as-built mapping is:
 - `DO5` = mistmaker
 - `DO6` = warmtelamp
 
-De standaard regenwoudgrenzen zijn:
+`DO4` is een korte regenpuls; bodemvochtmetingen zijn alleen telemetry en
+starten deze uitgang niet. In het actieve regenseizoen kan regen willekeurig
+met de ingestelde kans starten, of gepland in het venster vóór zonsopkomst en
+zonsondergang. Beide triggers vereisen dat de gemiddelde RH op of onder de
+actieve dag-/nachtwaarde `humidity.min_percent` ligt. Een regenpuls duurt
+maximaal één minuut.
 
-- gemiddelde RH onder 82%: `DO5 ON`
-- gemiddelde RH vanaf 90%: `DO5 OFF`
-- gemiddelde bodemvochtigheid onder 35%: `DO4 ON`
-- gemiddelde bodemvochtigheid vanaf 55%: `DO4 OFF`
+Tijdens regen is `DO4 ON` en `DO5 OFF`. Alleen na een geplande regenpuls kan
+`DO5` maximaal 10 minuten als napermist draaien. Napermist wordt onderdrukt
+zodra RH `humidity.target_percent + 5` bereikt; boven die grens heeft
+ventilatie voorrang.
 
-Bij een gemiddelde temperatuur onder `safety.temperature_too_low_c` wordt
-`DO06` als warmtelamp ingeschakeld. Bij normale of te hoge temperatuur wordt
-`DO06` uitgeschakeld. Een lek- of veiligheidsalarm heeft voorrang en schakelt
-`DO06` uit.
+De luchtvochtigheids- en temperatuurdoelen komen uit de actieve
+`seasons.<season>.<day|night>`-instellingen. Bij `target + 5` wordt ventilatie
+op 50% gezet en daarboven op 100%. De warmtelamp (`DO6`) gaat aan wanneer de
+gemiddelde temperatuur onder het actieve `temperature.target_c` ligt, behalve
+bij de ingestelde hoge-temperatuur- of leksafety.
+
+Een lek- of veiligheidsalarm heeft altijd voorrang: het schakelt regen, mist,
+warmtelamp, aquarium-bijvulling (`DO12`) en RO-ventiel (`DO15`) uit.
 
 Een lek (`DI2`) heeft altijd prioriteit en schakelt DO12 en DO15 uit. DI0 is de
 RO-vlotter: alleen bij actieve DI0 zonder lekalarm wordt DO15 `ON`. DI1 is de
 aquarium-bijvulvlotter: alleen bij actieve DI1 zonder lekalarm wordt DO12 `ON`.
 Bij inactieve of ontbrekende DI0/DI1 blijven de bijbehorende uitgangen `OFF`.
+
+De cyclische pompen worden ingesteld met de rootvelden `waterfall` en
+`orchid_dripper`. `waterfall.enabled` staat voorlopig op `false` totdat de
+beplanting geworteld is; die functie gebruikt DO10. De orchideeëndruppelaar
+gebruikt DO11 en leest `enabled`, `auto_mode`, `cycle_minutes` en
+`duration_seconds` uit JSON. Met de huidige instellingen draait DO11 45
+seconden per 90 minuten. De timer start pas wanneer de Moxa online is en DI2
+geen lek meldt; bij offline Moxa of alarm worden DO10 en DO11 uitgeschakeld.
 
 Tijdens het regenseizoen kan de regelengine willekeurig een korte regenbui
 starten. De instellingen staan onder `seasons.rainy.rainstorm`:
@@ -231,14 +248,16 @@ starten. De instellingen staan onder `seasons.rainy.rainstorm`:
 {
   "enabled": true,
   "chance_percent": 5,
-  "duration_minutes": 2,
-  "cooldown_minutes": 30
+  "duration_minutes": 1,
+  "cooldown_minutes": 30,
+  "pre_light_lead_minutes": 5,
+  "post_rain_mist_minutes": 10
 }
 ```
 
-Een actieve bui zet `DO4` (beregening) en `DO5` (mistmaker) aan. De bui werkt
-niet tijdens het droge seizoen en wordt altijd geblokkeerd door lek-, alarm- of
-reservoirstatus.
+Een regenpuls zet `DO4` aan. `DO5` blijft tijdens de regen uit en kan alleen na
+een geplande puls als napermist worden ingeschakeld. Regen werkt niet buiten
+het actieve regenseizoen, boven de minimumvochtigheid of bij lek-/alarmstatus.
 
 ---
 

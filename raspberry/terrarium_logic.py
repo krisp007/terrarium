@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import random
 import time
-from typing import Callable, Dict, Optional
+from datetime import datetime, time as datetime_time, timedelta
+from typing import Callable, Dict, Optional, Set
 
 
 DEFAULT_FAN_THRESHOLDS = {
@@ -32,8 +33,10 @@ DEFAULT_HEATER_THRESHOLDS = {
 DEFAULT_RAINSTORM = {
     "enabled": True,
     "chance_percent": 5.0,
-    "duration_minutes": 2,
+    "duration_minutes": 1,
     "cooldown_minutes": 30,
+    "pre_light_lead_minutes": 5,
+    "post_rain_mist_minutes": 10,
 }
 
 
@@ -41,6 +44,7 @@ class TerrariumLogic:
     """Evaluate safety and climate rules for the terrarium."""
 
     def __init__(self, settings: Optional[Dict[str, object]] = None) -> None:
+        self.settings: Dict[str, object] = {}
         self.sensor_state: Dict[str, float] = {}
         self.moxa_state: Optional[Dict[str, object]] = None
         self.last_heartbeat: Optional[int] = None
@@ -55,6 +59,10 @@ class TerrariumLogic:
         self.rainstorm: Dict[str, object] = dict(DEFAULT_RAINSTORM)
         self.rainstorm_until = 0.0
         self.rainstorm_cooldown_until = 0.0
+        self.post_rain_mist_until = 0.0
+        self.post_rain_mist_enabled = False
+        self.scheduled_rain_events: Set[str] = set()
+        self._pump_schedule_started_at: Dict[str, float] = {}
         self.random_source: Callable[[], float] = random.random
         self.minimum_airflow_percent = 30
         self.minimum_airflow_interval_seconds = 60
@@ -65,6 +73,7 @@ class TerrariumLogic:
 
     def update_settings(self, settings: Dict[str, object]) -> None:
         """Apply editable settings without changing the rule engine."""
+        self.settings.update(settings)
         fan_control = settings.get("fan_control", {})
         if isinstance(fan_control, dict):
             thresholds = fan_control.get("temp_thresholds_c", {})
@@ -100,6 +109,56 @@ class TerrariumLogic:
                         elif isinstance(value, (int, float)) and not isinstance(value, bool):
                             self.rainstorm[key] = value
 
+    @staticmethod
+    def _parse_clock(value: object, fallback: datetime_time) -> datetime_time:
+        if not isinstance(value, str):
+            return fallback
+        try:
+            hour, minute = (int(part) for part in value.split(":", 1))
+            return datetime_time(hour, minute)
+        except (ValueError, TypeError):
+            return fallback
+
+    def _active_climate_targets(self, current: Optional[datetime] = None) -> Dict[str, object]:
+        """Resolve the active season and day/night climate targets from settings."""
+        current = current or datetime.now()
+        schedule = self.settings.get("schedule", {})
+        if not isinstance(schedule, dict):
+            schedule = {}
+        sunrise = self._parse_clock(schedule.get("sunrise"), datetime_time(5, 45))
+        sunset = self._parse_clock(schedule.get("sunset"), datetime_time(18, 15))
+        period_name = "day" if sunrise <= current.time() < sunset else "night"
+
+        seasons = self.settings.get("seasons", {})
+        if not isinstance(seasons, dict):
+            seasons = {}
+        active = [
+            name for name, config in seasons.items()
+            if isinstance(config, dict) and config.get("active") is True
+        ]
+        season_name = "rainy" if "rainy" in active else active[0] if active else "rainy"
+        season = seasons.get(season_name, {})
+        if not isinstance(season, dict):
+            season = {}
+        period = season.get(period_name, {})
+        if not isinstance(period, dict):
+            period = {}
+        temperature = period.get("temperature", {})
+        humidity = period.get("humidity", {})
+        if not isinstance(temperature, dict):
+            temperature = {}
+        if not isinstance(humidity, dict):
+            humidity = {}
+
+        return {
+            "season": season_name,
+            "period": period_name,
+            "sunrise": sunrise,
+            "sunset": sunset,
+            "temperature_target": float(temperature.get("target_c", self.heater_thresholds["temperature_too_low_c"])),
+            "humidity_min": float(humidity.get("min_percent", self.mistmaker_on_humidity)),
+            "humidity_target": float(humidity.get("target_percent", self.mistmaker_off_humidity)),
+        }
     def update_sensor_state(self, payload: Dict[str, object]) -> Dict[str, object]:
         """Store the latest sensor measurements."""
         for key, value in payload.items():
@@ -117,6 +176,8 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do10": "OFF",
+                "do11": "OFF",
                 "do12": "OFF",
                 "do15": "OFF",
                 "alarm": True,
@@ -131,16 +192,19 @@ class TerrariumLogic:
             "reason": "normal",
         }
 
-    def evaluate_moxa_outputs(self) -> Dict[str, object]:
-        """Translate the latest sensors to Moxa DO4/DO5 commands."""
+    def evaluate_moxa_outputs(
+        self,
+        now: Optional[datetime] = None,
+        random_value: Optional[float] = None,
+    ) -> Dict[str, object]:
+        """Evaluate timed rain/mist outputs and independent Moxa interlocks."""
+        current = now or datetime.now()
+        climate = self._active_climate_targets(current)
         humidity_values = [
             value for key, value in self.sensor_state.items()
             if key.startswith("humidity_")
         ]
-        soil_values = [
-            value for key, value in self.sensor_state.items()
-            if key.startswith("soil_")
-        ]
+        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
 
         if self.moxa_state is not None and (
             self.moxa_state.get("di2") is True or self.moxa_state.get("alarm") is True
@@ -149,6 +213,8 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": "OFF",
+                "do10": "OFF",
+                "do11": "OFF",
                 "do12": "OFF",
                 "do15": "OFF",
                 "mistmaker": "OFF",
@@ -162,6 +228,8 @@ class TerrariumLogic:
                 "do4": "OFF",
                 "do5": "OFF",
                 "do6": self.evaluate_heater_command()["state"],
+                "do10": "OFF",
+                "do11": "OFF",
                 "do12": "OFF",
                 "do15": "OFF",
                 "mistmaker": "OFF",
@@ -170,52 +238,100 @@ class TerrariumLogic:
                 "reason": "moxa_status_unknown",
             }
 
-        humidity = sum(humidity_values) / len(humidity_values) if humidity_values else None
-        soil = sum(soil_values) / len(soil_values) if soil_values else None
-        mistmaker = "OFF"
-        irrigation = "OFF"
-
-        rainstorm = self.evaluate_rainstorm()
-        if rainstorm["active"]:
-            mistmaker = "ON"
-            irrigation = "ON"
-
-        if humidity is not None:
-            mistmaker = "ON" if humidity < self.mistmaker_on_humidity else "OFF"
-            if humidity >= self.mistmaker_off_humidity:
-                mistmaker = "OFF"
-
-        if soil is not None:
-            irrigation = "ON" if soil < self.irrigation_on_soil else "OFF"
-            if soil >= self.irrigation_off_soil:
-                irrigation = "OFF"
+        event = self.evaluate_rainstorm(
+            season=str(climate["season"]),
+            now=current.timestamp(),
+            random_value=random_value,
+            humidity=humidity,
+            minimum_humidity=float(climate["humidity_min"]),
+            scheduled_event=self._scheduled_rain_event(current, climate),
+        )
+        mistmaker = event["do5"]
+        humidity_target = float(climate["humidity_target"])
+        if mistmaker == "ON" and humidity is not None and humidity >= humidity_target + 5:
+            mistmaker = "OFF"
 
         return {
-            "do4": irrigation,
+            "do4": event["do4"],
             "do5": mistmaker,
-            "do6": self.evaluate_heater_command()["state"],
+            "do6": self.evaluate_heater_command(climate_time=current)["state"],
             "do12": "ON" if self.moxa_state.get("di1") is True else "OFF",
             "do15": "ON" if self.moxa_state.get("di0") is True else "OFF",
             "mistmaker": mistmaker,
-            "beregening": irrigation,
+            "beregening": event["do4"],
             "alarm": False,
-            "reason": (
-                "rainstorm" if rainstorm["active"]
-                else "sensor_control"
-            ),
+            "reason": event["reason"],
         }
+
+    def evaluate_scheduled_pump_outputs(
+        self,
+        now: Optional[float] = None,
+        moxa_online: bool = False,
+    ) -> Dict[str, str]:
+        """Return JSON-configured auxiliary pump states; first cycle waits one interval."""
+        current_time = time.monotonic() if now is None else now
+        safe = (
+            moxa_online
+            and self.moxa_state is not None
+            and self.moxa_state.get("di2") is not True
+            and self.moxa_state.get("alarm") is not True
+        )
+        outputs: Dict[str, str] = {}
+        for config_name, output_name in (("waterfall", "do10"), ("orchid_dripper", "do11")):
+            config = self.settings.get(config_name, {})
+            if not isinstance(config, dict):
+                config = {}
+            enabled = config.get("enabled") is True and config.get("auto_mode") is True
+            if not safe or not enabled:
+                self._pump_schedule_started_at.pop(config_name, None)
+                outputs[output_name] = "OFF"
+                continue
+
+            cycle_seconds = max(1.0, float(config.get("cycle_minutes", 90)) * 60)
+            duration_seconds = max(0.0, min(float(config.get("duration_seconds", 45)), cycle_seconds))
+            started_at = self._pump_schedule_started_at.setdefault(config_name, current_time)
+            elapsed = max(0.0, current_time - started_at)
+            phase = elapsed % cycle_seconds
+            outputs[output_name] = (
+                "ON" if elapsed >= cycle_seconds and phase < duration_seconds else "OFF"
+            )
+        return outputs
+
+    def _scheduled_rain_event(
+        self,
+        current: datetime,
+        climate: Dict[str, object],
+    ) -> Optional[str]:
+        lead_minutes = max(1, int(self.rainstorm.get("pre_light_lead_minutes", 5)))
+        for event_name in ("sunrise", "sunset"):
+            light_time = climate[event_name]
+            light_at = datetime.combine(current.date(), light_time)
+            event_key = f"{current.date().isoformat()}:{event_name}"
+            if (
+                event_key not in self.scheduled_rain_events
+                and light_at - timedelta(minutes=lead_minutes) <= current < light_at
+            ):
+                return event_key
+        return None
 
     def evaluate_rainstorm(
         self,
         season: str = "rainy",
         now: Optional[float] = None,
         random_value: Optional[float] = None,
+        humidity: Optional[float] = None,
+        minimum_humidity: Optional[float] = None,
+        scheduled_event: Optional[str] = None,
     ) -> Dict[str, object]:
-        """Start a random short rainstorm during the configured rainy season."""
-        import time
-
+        """Run a humidity-gated rain event and planned-rain mist follow-up."""
         current_time = time.time() if now is None else now
-        inactive = {"active": False, "do4": "OFF", "do5": "OFF", "reason": "inactive"}
+        inactive = {
+            "active": False,
+            "do4": "OFF",
+            "do5": "OFF",
+            "reason": "inactive",
+            "phase": "idle",
+        }
         if season != "rainy" or not self.rainstorm.get("enabled", False):
             return inactive
         if self.moxa_state is not None and (
@@ -224,21 +340,59 @@ class TerrariumLogic:
         ):
             return {**inactive, "reason": "safety_block"}
         if current_time < self.rainstorm_until:
-            return {"active": True, "do4": "ON", "do5": "ON", "reason": "rainstorm"}
+            return {
+                "active": True,
+                "do4": "ON",
+                "do5": "OFF",
+                "reason": "scheduled_rain" if self.post_rain_mist_enabled else "rainstorm",
+                "phase": "rain",
+            }
+        if current_time < self.post_rain_mist_until and self.post_rain_mist_enabled:
+            return {
+                "active": False,
+                "do4": "OFF",
+                "do5": "ON",
+                "reason": "post_rain_mist",
+                "phase": "mist",
+            }
+        if humidity is None or minimum_humidity is None or humidity > minimum_humidity:
+            return {**inactive, "reason": "minimum_humidity_not_reached"}
         if current_time < self.rainstorm_cooldown_until:
             return {**inactive, "reason": "cooldown"}
 
-        chance = float(self.rainstorm.get("chance_percent", 0.0)) / 100.0
-        if (self.random_source() if random_value is None else random_value) >= chance:
-            return inactive
+        scheduled = scheduled_event is not None
+        if scheduled:
+            if scheduled_event in self.scheduled_rain_events:
+                return {**inactive, "reason": "scheduled_event_complete"}
+        else:
+            chance = float(self.rainstorm.get("chance_percent", 0.0)) / 100.0
+            if (self.random_source() if random_value is None else random_value) >= chance:
+                return inactive
 
-        duration = max(1.0, float(self.rainstorm.get("duration_minutes", 2))) * 60
+        configured_duration = float(self.rainstorm.get("duration_minutes", 1))
+        duration_seconds = min(60.0, max(1.0, configured_duration * 60))
         cooldown = max(0.0, float(self.rainstorm.get("cooldown_minutes", 30))) * 60
-        self.rainstorm_until = current_time + duration
+        self.rainstorm_until = current_time + duration_seconds
         self.rainstorm_cooldown_until = self.rainstorm_until + cooldown
-        return {"active": True, "do4": "ON", "do5": "ON", "reason": "rainstorm"}
+        self.post_rain_mist_enabled = scheduled
+        if scheduled:
+            self.scheduled_rain_events.add(str(scheduled_event))
+            mist_minutes = max(0.0, float(self.rainstorm.get("post_rain_mist_minutes", 10)))
+            self.post_rain_mist_until = self.rainstorm_until + mist_minutes * 60
+        else:
+            self.post_rain_mist_until = 0.0
+        return {
+            "active": True,
+            "do4": "ON",
+            "do5": "OFF",
+            "reason": "scheduled_rain" if scheduled else "rainstorm",
+            "phase": "rain",
+        }
 
-    def evaluate_heater_command(self) -> Dict[str, object]:
+    def evaluate_heater_command(
+        self,
+        climate_time: Optional[datetime] = None,
+    ) -> Dict[str, object]:
         """Switch the Moxa warmtelamp on only below the configured minimum."""
         temperatures = [
             value for key, value in self.sensor_state.items()
@@ -248,15 +402,16 @@ class TerrariumLogic:
             return {"state": "OFF", "do6": "OFF", "reason": "no_temperature"}
 
         average_temperature = sum(temperatures) / len(temperatures)
-        if average_temperature < self.heater_thresholds["temperature_too_low_c"]:
-            state = "ON"
-            reason = "temperature_too_low"
-        elif average_temperature >= self.heater_thresholds["temperature_too_high_c"]:
+        temperature_target = float(self._active_climate_targets(climate_time)["temperature_target"])
+        if average_temperature >= self.heater_thresholds["temperature_too_high_c"]:
             state = "OFF"
             reason = "temperature_too_high"
+        elif average_temperature < temperature_target:
+            state = "ON"
+            reason = "temperature_too_low"
         else:
             state = "OFF"
-            reason = "temperature_normal"
+            reason = "at_or_above_target"
 
         if self.moxa_state is not None and (
             self.moxa_state.get("di2") is True or self.moxa_state.get("alarm") is True
@@ -266,7 +421,11 @@ class TerrariumLogic:
 
         return {"state": state, "do6": state, "reason": reason}
 
-    def evaluate_fan_command(self, now: Optional[float] = None) -> Dict[str, object]:
+    def evaluate_fan_command(
+        self,
+        now: Optional[float] = None,
+        climate_time: Optional[datetime] = None,
+    ) -> Dict[str, object]:
         """Compute a safe fan level from the current average temperature."""
         current_time = time.time() if now is None else now
         active_minimum_fan = 1 if int(current_time / self.minimum_airflow_interval_seconds) % 2 == 0 else 6
@@ -279,24 +438,48 @@ class TerrariumLogic:
             for key, value in self.sensor_state.items()
             if key.startswith("temperature") and isinstance(value, (int, float))
         ]
-
-        if not temps:
-            return self._apply_fan_overrides(self._fan_command(0, active_minimum_fan), current_time)
-
-        average_temp = sum(temps) / len(temps)
-
-        if average_temp < self.fan_thresholds["low"]:
-            level = self.fan_levels["off"]
-        elif average_temp < self.fan_thresholds["medium"]:
-            level = self.fan_levels["low"]
-        elif average_temp < self.fan_thresholds["high"]:
-            level = self.fan_levels["medium"]
-        elif average_temp < self.fan_thresholds["max_safe"]:
-            level = self.fan_levels["high"]
-        else:
-            level = self.fan_levels["max"]
+        humidity_values = [
+            float(value)
+            for key, value in self.sensor_state.items()
+            if key.startswith("humidity_") and isinstance(value, (int, float))
+        ]
+        climate = self._active_climate_targets(climate_time)
+        level = self.fan_levels["low"]
+        seasons = self.settings.get("seasons", {})
+        has_season_targets = isinstance(seasons, dict) and bool(seasons)
+        if temps and not has_season_targets:
+            average_temp = sum(temps) / len(temps)
+            if average_temp < self.fan_thresholds["low"]:
+                level = self.fan_levels["low"]
+            elif average_temp < self.fan_thresholds["medium"]:
+                level = self.fan_levels["low"]
+            elif average_temp < self.fan_thresholds["high"]:
+                level = self.fan_levels["medium"]
+            elif average_temp < self.fan_thresholds["max_safe"]:
+                level = self.fan_levels["high"]
+            else:
+                level = self.fan_levels["max"]
+        elif temps:
+            average_temp = sum(temps) / len(temps)
+            level = max(
+                level,
+                self._ventilation_level(average_temp - float(climate["temperature_target"])),
+            )
+        if humidity_values:
+            average_humidity = sum(humidity_values) / len(humidity_values)
+            level = max(
+                level,
+                self._ventilation_level(average_humidity - float(climate["humidity_target"])),
+            )
 
         return self._apply_fan_overrides(self._fan_command(int(level), active_minimum_fan), current_time)
+
+    def _ventilation_level(self, target_delta: float) -> int:
+        if target_delta > 5:
+            return self.fan_levels["max"]
+        if target_delta >= 5:
+            return self.fan_levels["medium"]
+        return self.fan_levels["low"]
 
     def set_fan_override(
         self,
@@ -483,7 +666,11 @@ class TerrariumLogic:
             "led4": season_target,
         }
 
-    def evaluate_light_command(self, time_str: str, season: str = "rainy") -> Dict[str, object]:
+    def evaluate_light_command(
+        self,
+        time_str: str,
+        season: Optional[str] = None,
+    ) -> Dict[str, object]:
         """Build the lighting command for the current Costa Rica day cycle."""
         try:
             hour, minute = [int(part) for part in time_str.split(":")]
@@ -491,17 +678,27 @@ class TerrariumLogic:
         except Exception:
             return self._light_command(self._dark_leds())
 
-        sunrise = 5 * 60 + 45
-        sunset = 18 * 60 + 15
+        current = datetime.combine(datetime.now().date(), datetime_time(hour, minute))
+        climate = self._active_climate_targets(current)
+        sunrise_time = climate["sunrise"]
+        sunset_time = climate["sunset"]
+        sunrise = sunrise_time.hour * 60 + sunrise_time.minute
+        sunset = sunset_time.hour * 60 + sunset_time.minute
+        active_season = season or str(climate["season"])
+        lighting = self.settings.get("lighting", {})
         transition = 20
+        if isinstance(lighting, dict):
+            value = lighting.get("dawn_dusk_transition_minutes", transition)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                transition = max(1, int(value))
         if total_minutes < sunrise or total_minutes >= sunset + transition:
             return self._light_command(self._dark_leds())
 
         if total_minutes < sunrise + transition:
-            leds = self._scheduled_dawn_profile(total_minutes - sunrise, season)
+            leds = self._scheduled_dawn_profile(total_minutes - sunrise, active_season)
         elif total_minutes >= sunset:
             dawn_profile = self.evaluate_light_transition(
-                self._minutes_to_time(sunrise + transition), season=season
+                self._minutes_to_time(sunrise + transition), season=active_season
             )
             elapsed = total_minutes - sunset
             factor = max(0.0, 1.0 - (elapsed / transition))
@@ -510,14 +707,14 @@ class TerrariumLogic:
                 for key, value in dawn_profile.items()
             }
         else:
-            target = 80 if season == "rainy" else 100
+            target = 80 if active_season == "rainy" else 100
             leds = {key: target for key in ("led1", "led2", "led3", "led4")}
 
         return self._light_command(leds)
     def evaluate_moxa_light_outputs(
         self,
         time_str: str,
-        season: str = "rainy",
+        season: Optional[str] = None,
     ) -> Dict[str, object]:
         """Build Moxa power commands for the four LED driver outputs."""
         light = self.evaluate_light_command(time_str, season)

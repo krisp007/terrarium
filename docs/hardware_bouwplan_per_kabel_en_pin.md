@@ -171,12 +171,12 @@ Controleer:
 | DO4 | Beregening | irrigatie systeem |
 | DO5 | Mistmaker | waterpijpleiding |
 | DO6 | Warmtelamp | veiligheid / warmte |
-| DO7 | Watervalpomp | waterstroom / bijzonder circuit |
+| DO7 | Reserve | vrije output |
 | DO8 | Reserve | vrije output |
 | DO9 | Pomp 1 mistmaker | toekomstige of extra pompfunctie |
-| DO10 | Pomp 2 beregening | toekomstige of extra pompfunctie |
-| DO11 | Pomp 3 | reserve |
-| DO12 | Pomp 4 | reserve |
+| DO10 | Watervalpomp | uitgeschakeld tot de beplanting geworteld is |
+| DO11 | Orchideeën druppelaar | JSON-cyclus: elke 90 minuten 45 seconden aan |
+| DO12 | Aquarium bijvulpomp | DI1-actief stuurt bijvullen aan |
 | DO13 | Reserve | vrije output |
 | DO14 | Reserve | vrije output |
 | DO15 | WaterValve RO | RO-waterafsluiting of RO-voeding |

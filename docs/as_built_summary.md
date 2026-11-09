@@ -111,12 +111,12 @@ Functie:
 - DO4 = Beregening
 - DO5 = Mistmaker
 - DO6 = Warmtelamp
-- DO7 = Watervalpomp
+- DO7 = Reserve
 - DO8 = Reserve
 - DO9 = Pomp 1 mistmaker
-- DO10 = Pomp 2 beregening
-- DO11 = Pomp 3
-- DO12 = Pomp 4
+- DO10 = Watervalpomp (uitgeschakeld tot de beplanting geworteld is)
+- DO11 = Orchideeën druppelaar (90 minuten / 45 seconden)
+- DO12 = Aquarium bijvulpomp, aangestuurd door DI1
 - DO13 = Reserve
 - DO14 = Reserve
 - DO15 = WaterValve RO

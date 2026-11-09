@@ -141,8 +141,25 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 .sensor-label{color:#9eafa5;font-size:12px;margin-right:auto}
 .sensor-value{font-size:18px;color:#f2f5ef}
 .sensor-unit{font-size:12px;color:#a9b8b0}
+.ventilation{margin-top:16px;padding:22px 24px;background:#1c3029;border:1px solid #385046;border-radius:8px}
+.ventilation-header{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.ventilation-header h2{margin:0}
+#fan-state{font:600 14px Arial,sans-serif;color:#a7d879}
+.ventilation-sequence{margin:16px 0 0;color:#a9b8b0;font:14px Arial,sans-serif}
+.fan-channels{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-top:16px}
+.fan-channel{padding:12px;background:#172721;border:1px solid #385046;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font:14px Arial,sans-serif}
+.fan-channel.sequence-active{border-color:#a7d879;color:#a7d879}
+.fan-level{font-weight:600;color:#f2f5ef}
+.lighting{margin-top:16px;padding:22px 24px;background:#302d22;border:1px solid #665b38;border-radius:8px}
+.lighting-header{display:flex;justify-content:space-between;align-items:center;gap:16px}
+#light-state{font:600 14px Arial,sans-serif;color:#f2cd73}
+.lighting-sequence{margin:16px 0 0;color:#c2b98f;font:14px Arial,sans-serif}
+.led-channels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}
+.led-channel{padding:12px;background:#211f19;border:1px solid #665b38;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font:14px Arial,sans-serif}
+.led-channel.active{border-color:#f2cd73;color:#f2cd73}
+.led-level{font-weight:600;color:#f2f5ef}
 @media(max-width:850px){.readings{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px;gap:18px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}}
+@media(max-width:640px){body{padding:20px}.readings{grid-template-columns:1fr;gap:12px}article{min-height:220px;padding:24px;gap:18px}.value{font-size:76px}header{align-items:start;flex-direction:column;margin-bottom:18px}#sensor-state{text-align:left}.ventilation,.lighting{padding:18px}.fan-channels{grid-template-columns:repeat(3,minmax(0,1fr))}.ventilation-header,.lighting-header{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
@@ -153,12 +170,34 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 <article class="water"><h2>Aquarium temperature</h2><div class="value"><span id="aquarium-temperature">--</span><span class="unit">&#176;C</span></div></article>
 <article class="humidity"><h2>Humidity</h2><div class="value"><span id="humidity">--</span><span class="unit">%</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="humidity-left">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="humidity-middle">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="humidity-right">--</span><span class="sensor-unit">%</span></div></div></article>
 </div>
+<section class="ventilation" aria-labelledby="ventilation-title">
+<div class="ventilation-header"><h2 id="ventilation-title">Ventilation</h2><div id="fan-state" role="status" aria-live="polite">Waiting for fan command</div></div>
+<p id="fan-sequence" class="ventilation-sequence">Minimum airflow sequence: F1 -&gt; F6 -&gt; F1</p>
+<div class="fan-channels"><div class="fan-channel" id="fan-1"><span>F1</span><span class="fan-level" id="fan-1-level">--</span></div><div class="fan-channel" id="fan-2"><span>F2</span><span class="fan-level" id="fan-2-level">--</span></div><div class="fan-channel" id="fan-3"><span>F3</span><span class="fan-level" id="fan-3-level">--</span></div><div class="fan-channel" id="fan-4"><span>F4</span><span class="fan-level" id="fan-4-level">--</span></div><div class="fan-channel" id="fan-5"><span>F5</span><span class="fan-level" id="fan-5-level">--</span></div><div class="fan-channel" id="fan-6"><span>F6</span><span class="fan-level" id="fan-6-level">--</span></div></div>
+</section>
+<section class="lighting" aria-labelledby="lighting-title">
+<div class="lighting-header"><h2 id="lighting-title">Lighting</h2><div id="light-state" role="status" aria-live="polite">Waiting for lighting command</div></div>
+<p id="lighting-sequence" class="lighting-sequence">Dawn 05:45: LED2 -&gt; LED2+3 -&gt; all four over 20 min. Dusk 18:15: fade to off over 20 min.</p>
+<div class="led-channels"><div class="led-channel" id="led-1"><span>LED1</span><span class="led-level" id="led-1-level">--</span></div><div class="led-channel" id="led-2"><span>LED2</span><span class="led-level" id="led-2-level">--</span></div><div class="led-channel" id="led-3"><span>LED3</span><span class="led-level" id="led-3-level">--</span></div><div class="led-channel" id="led-4"><span>LED4</span><span class="led-level" id="led-4-level">--</span></div></div>
+</section>
 </main>
 <script>
 const temperature=document.querySelector('#temperature');
 const humidity=document.querySelector('#humidity');
 const aquariumTemperature=document.querySelector('#aquarium-temperature');
 const sensorState=document.querySelector('#sensor-state');
+const fanState=document.querySelector('#fan-state');
+const fanSequence=document.querySelector('#fan-sequence');
+const lightState=document.querySelector('#light-state');
+const lightingSequence=document.querySelector('#lighting-sequence');
+const fanChannels=Array.from({length:6},(_,index)=>({
+ element:document.querySelector(`#fan-${index+1}`),
+ level:document.querySelector(`#fan-${index+1}-level`)
+}));
+const ledChannels=Array.from({length:4},(_,index)=>({
+ element:document.querySelector(`#led-${index+1}`),
+ level:document.querySelector(`#led-${index+1}-level`)
+}));
 const sensorReadings={
  temperature_left:document.querySelector('#temperature-left'),
  temperature_top:document.querySelector('#temperature-middle'),
@@ -172,11 +211,45 @@ function averageReading(sensors,prefix){
  return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
 }
 function showReading(element,value){element.textContent=value===null?'--':value.toFixed(1);}
+function showFanStatus(commands){
+ const command=commands?.['esp32/cmd/fans'];
+ if(!command){fanState.textContent='Fan command unavailable';fanSequence.textContent='Minimum airflow sequence unavailable';return;}
+ const channels=command.channels||{};
+ const minimum=command.minimum_airflow||{};
+ const activeFan=Number(minimum.active_fan);
+ fanChannels.forEach(({element,level},index)=>{
+    const fanNumber=index+1,value=channels[`fan${fanNumber}`];
+    level.textContent=typeof value==='number'&&Number.isFinite(value)?`${value}%`:'--';
+    element.classList.toggle('sequence-active',command.mode==='auto'&&minimum.enabled===true&&fanNumber===activeFan);
+ });
+ fanState.textContent=`${command.mode==='manual'?'Manual':'Automatic'} · ${typeof command.level==='number'?`${command.level}%`:''}`.trim();
+ fanSequence.textContent=minimum.enabled===true&&command.mode==='auto'
+    ?`Minimum airflow: F1 -> F6 -> F1, switches every 60 s. Active: F${activeFan} at ${minimum.percent}%`
+    :minimum.enabled===true?'Minimum airflow sequence paused during manual control':'Minimum airflow sequence disabled';
+}
+function showLightingStatus(commands){
+ const command=commands?.['esp32/cmd/lights'];
+ if(!command){lightState.textContent='Lighting command unavailable';lightingSequence.textContent='Lighting sequence unavailable';return;}
+ const leds=command.leds||{};
+ ledChannels.forEach(({element,level},index)=>{
+    const brightness=leds[`led${index+1}`];
+    level.textContent=typeof brightness==='number'&&Number.isFinite(brightness)?`${brightness}%`:'--';
+    element.classList.toggle('active',typeof brightness==='number'&&brightness>0);
+ });
+ const mode=command.mode==='manual'?'Manual':'Automatic';
+ const state=command.state==='on'?'On':'Off';
+ lightState.textContent=`${mode} · ${state} · ${typeof command.brightness==='number'?`${command.brightness}%`:''}`.trim();
+ lightingSequence.textContent=command.mode==='manual'
+    ?'Day/night sequence paused during manual control.'
+    :'Dawn 05:45: LED2 -> LED2+3 -> all four over 20 min. Dusk 18:15: fade to off over 20 min.';
+}
 async function refresh(){
  try{
   const response=await fetch('/api/status',{cache:'no-store'});
   if(!response.ok)throw new Error('Status request failed');
   const status=await response.json();
+    showFanStatus(status.commands);
+    showLightingStatus(status.commands);
   const sensors=status.esp32?.sensors||{};
   const temperatureValue=averageReading(sensors,'temperature_');
   const humidityValue=averageReading(sensors,'humidity_');
@@ -191,6 +264,8 @@ async function refresh(){
   sensorState.classList.toggle('offline',!hasReadings||stale);
   sensorState.textContent=!hasReadings?'Waiting for sensor data':stale?'Sensor data is stale':'Updated '+new Date(lastSeen*1000).toLocaleTimeString();
  }catch{
+    showFanStatus(null);
+    showLightingStatus(null);
   showReading(temperature,null);
   showReading(humidity,null);
     showReading(aquariumTemperature,null);

@@ -291,12 +291,12 @@ Voorbeeld payload:
 - DO4 = Beregening
 - DO5 = Mistmaker
 - DO6 = Warmtelamp
-- DO7 = Watervalpomp
+- DO7 = Reserve
 - DO8 = Reserve
 - DO9 = Pomp 1 mistmaker
-- DO10 = Pomp 2 beregening
-- DO11 = Pomp 3
-- DO12 = Pomp 4
+- DO10 = Watervalpomp (uitgeschakeld tot de beplanting geworteld is)
+- DO11 = Orchideeën druppelaar
+- DO12 = Aquarium bijvulpomp
 - DO13 = Reserve
 - DO14 = Reserve
 - DO15 = WaterValve RO
@@ -569,43 +569,97 @@ Lekdetectie
 
 DO0
 
-Warmtelamp links
+LED Links voeding
 
 ---
 
 DO1
 
-Warmtelamp rechts
+LED Mid1 voeding
 
 ---
 
 DO2
 
-Mistmaker
+LED Mid2 voeding
 
 ---
 
 DO3
 
-Beregening
+LED Rechts voeding
 
 ---
 
 DO4
 
-Vulpomp mistmaker
+Beregening
 
 ---
 
 DO5
 
-Vulpomp beregening
+Mistmaker
 
 ---
 
 DO6
 
-Watervalpomp
+Warmtelamp
+
+---
+
+DO7
+
+Reserve
+
+---
+
+DO8
+
+Reserve
+
+---
+
+DO9
+
+Pomp mistmaker
+
+---
+
+DO10
+
+Watervalpomp (uitgeschakeld tot de beplanting geworteld is)
+
+---
+
+DO11
+
+Orchideeën druppelaar
+
+---
+
+DO12
+
+Aquarium bijvulpomp
+
+---
+
+DO13
+
+Reserve
+
+---
+
+DO14
+
+Reserve
+
+---
+
+DO15
+
+WaterValve RO
 
 ---
 

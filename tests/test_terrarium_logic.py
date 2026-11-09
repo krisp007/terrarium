@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from raspberry.mqtt_controller import TerrariumMQTTController
 from raspberry.service import MOXA_READ_TOPIC, SUBSCRIPTIONS, TerrariumMQTTService
@@ -10,6 +10,37 @@ from raspberry.terrarium_logic import TerrariumLogic
 
 
 class TerrariumLogicTests(unittest.TestCase):
+    @staticmethod
+    def rainy_profile_settings():
+        return {
+            "schedule": {"sunrise": "05:45", "sunset": "18:15"},
+            "seasons": {
+                "rainy": {
+                    "active": True,
+                    "day": {
+                        "temperature": {"target_c": 25.0},
+                        "humidity": {"min_percent": 80.0, "target_percent": 90.0},
+                    },
+                    "night": {
+                        "temperature": {"target_c": 20.0},
+                        "humidity": {"min_percent": 80.0, "target_percent": 90.0},
+                    },
+                    "rainstorm": {
+                        "enabled": True,
+                        "chance_percent": 5,
+                        "duration_minutes": 1,
+                        "cooldown_minutes": 30,
+                        "pre_light_lead_minutes": 5,
+                        "post_rain_mist_minutes": 10,
+                    },
+                },
+            },
+            "fan_control": {
+                "fan_levels_percent": {"off": 0, "low": 30, "medium": 50, "high": 80, "max": 100},
+            },
+            "safety": {"temperature_too_low_c": 18.0, "temperature_too_high_c": 30.5},
+        }
+
     def test_safe_mode_when_leak_detected(self):
         logic = TerrariumLogic()
         payload = {"di0": True, "di2": True, "alarm": False}
@@ -49,6 +80,97 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(active["do12"], "ON")
         self.assertEqual(inactive["do12"], "OFF")
         self.assertEqual(leak["do12"], "OFF")
+
+    def test_waterfall_and_orchid_dripper_follow_json_cycles(self):
+        logic = TerrariumLogic({
+            "waterfall": {
+                "enabled": False,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+            "orchid_dripper": {
+                "enabled": True,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+        })
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+
+        before = logic.evaluate_scheduled_pump_outputs(now=0, moxa_online=True)
+        due = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=True)
+        last_active_second = logic.evaluate_scheduled_pump_outputs(now=5444, moxa_online=True)
+        expired = logic.evaluate_scheduled_pump_outputs(now=5445, moxa_online=True)
+
+        self.assertEqual(before, {"do10": "OFF", "do11": "OFF"})
+        self.assertEqual(due, {"do10": "OFF", "do11": "ON"})
+        self.assertEqual(last_active_second["do11"], "ON")
+        self.assertEqual(expired["do11"], "OFF")
+
+    def test_scheduled_pumps_fail_off_when_moxa_is_offline_or_leaking(self):
+        logic = TerrariumLogic({
+            "orchid_dripper": {
+                "enabled": True,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+        })
+
+        offline = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=False)
+        logic.evaluate_moxa_state({"di2": True, "alarm": True})
+        leak = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=True)
+
+        self.assertEqual(offline["do11"], "OFF")
+        self.assertEqual(leak["do11"], "OFF")
+
+    def test_auxiliary_pumps_follow_json_enable_cycle_and_duration(self):
+        logic = TerrariumLogic({
+            "waterfall": {
+                "enabled": False,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+            "orchid_dripper": {
+                "enabled": True,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+        })
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+
+        before_first_cycle = logic.evaluate_scheduled_pump_outputs(now=0, moxa_online=True)
+        just_before = logic.evaluate_scheduled_pump_outputs(now=5399, moxa_online=True)
+        cycle_start = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=True)
+        last_active_second = logic.evaluate_scheduled_pump_outputs(now=5444, moxa_online=True)
+        cycle_end = logic.evaluate_scheduled_pump_outputs(now=5445, moxa_online=True)
+
+        self.assertEqual(before_first_cycle, {"do10": "OFF", "do11": "OFF"})
+        self.assertEqual(just_before["do11"], "OFF")
+        self.assertEqual(cycle_start["do11"], "ON")
+        self.assertEqual(last_active_second["do11"], "ON")
+        self.assertEqual(cycle_end["do11"], "OFF")
+        self.assertEqual(cycle_start["do10"], "OFF")
+
+    def test_auxiliary_pumps_fail_off_without_online_safe_moxa(self):
+        logic = TerrariumLogic({
+            "orchid_dripper": {
+                "enabled": True,
+                "auto_mode": True,
+                "cycle_minutes": 90,
+                "duration_seconds": 45,
+            },
+        })
+
+        offline = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=False)
+        logic.evaluate_moxa_state({"di2": True, "alarm": True})
+        leak = logic.evaluate_scheduled_pump_outputs(now=5400, moxa_online=True)
+
+        self.assertEqual(offline["do11"], "OFF")
+        self.assertEqual(leak["do11"], "OFF")
 
     def test_fan_level_increases_with_temperature(self):
         logic = TerrariumLogic()
@@ -106,6 +228,19 @@ class TerrariumLogicTests(unittest.TestCase):
         automatic = logic.evaluate_light_command("12:00", season="rainy")
         self.assertEqual(automatic["leds"]["led1"], 80)
 
+    def test_lighting_schedule_uses_json_sunrise_and_sunset(self):
+        settings = self.rainy_profile_settings()
+        settings["schedule"] = {"sunrise": "06:00", "sunset": "18:00"}
+        logic = TerrariumLogic(settings)
+
+        before_sunrise = logic.evaluate_light_command("05:59")
+        sunrise = logic.evaluate_light_command("06:00")
+        after_sunset = logic.evaluate_light_command("18:20")
+
+        self.assertEqual(before_sunrise["brightness"], 0)
+        self.assertEqual(sunrise["leds"]["led2"], 20)
+        self.assertEqual(after_sunset["brightness"], 0)
+
     def test_heater_turns_on_below_minimum_temperature(self):
         logic = TerrariumLogic({"safety": {"temperature_too_low_c": 18.0}})
         logic.update_sensor_state({"temperature_top": 17.5})
@@ -136,20 +271,119 @@ class TerrariumLogicTests(unittest.TestCase):
         logic = TerrariumLogic({
             "seasons": {
                 "rainy": {
+                    "active": True,
+                    "day": {"humidity": {"min_percent": 82, "target_percent": 90}},
+                    "night": {"humidity": {"min_percent": 82, "target_percent": 94}},
                     "rainstorm": {
                         "chance_percent": 100,
-                        "duration_minutes": 2,
+                        "duration_minutes": 1,
                         "cooldown_minutes": 30,
                     },
                 },
             },
         })
 
-        storm = logic.evaluate_rainstorm(season="rainy", now=1000, random_value=0.0)
+        storm = logic.evaluate_rainstorm(
+            season="rainy", now=1000, random_value=0.0, humidity=82, minimum_humidity=82
+        )
         self.assertTrue(storm["active"])
         self.assertEqual(storm["do4"], "ON")
-        self.assertEqual(storm["do5"], "ON")
-        self.assertEqual(logic.evaluate_rainstorm(season="dry", now=1001, random_value=0.0)["active"], False)
+        self.assertEqual(storm["do5"], "OFF")
+        self.assertFalse(logic.evaluate_rainstorm(
+            season="dry", now=1001, random_value=0.0, humidity=82, minimum_humidity=82
+        )["active"])
+
+    def test_rain_requires_minimum_humidity_and_stops_after_one_minute(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+        start = datetime(2026, 9, 18, 12, 0)
+
+        rain = logic.evaluate_moxa_outputs(now=start, random_value=0.04)
+        still_raining = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=59), random_value=0.99)
+        stopped = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=60), random_value=0.99)
+
+        self.assertEqual(rain["do4"], "ON")
+        self.assertEqual(rain["do5"], "OFF")
+        self.assertEqual(still_raining["do4"], "ON")
+        self.assertEqual(stopped["do4"], "OFF")
+
+        above_minimum = TerrariumLogic(self.rainy_profile_settings())
+        above_minimum.update_sensor_state({"humidity_left": 81, "humidity_top": 81, "humidity_right": 81})
+        above_minimum.evaluate_moxa_state({"di2": False, "alarm": False})
+        no_rain = above_minimum.evaluate_moxa_outputs(now=start, random_value=0.0)
+        self.assertEqual(no_rain["do4"], "OFF")
+
+    def test_scheduled_pre_light_rain_is_followed_by_ten_minutes_mist(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+        start = datetime(2026, 9, 18, 5, 40)
+
+        scheduled_rain = logic.evaluate_moxa_outputs(now=start, random_value=0.99)
+        post_rain_mist = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=61), random_value=0.99)
+        mist_finished = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=661), random_value=0.99)
+
+        self.assertEqual(scheduled_rain["do4"], "ON")
+        self.assertEqual(scheduled_rain["do5"], "OFF")
+        self.assertEqual(post_rain_mist["do4"], "OFF")
+        self.assertEqual(post_rain_mist["do5"], "ON")
+        self.assertEqual(mist_finished["do5"], "OFF")
+
+        dusk = TerrariumLogic(self.rainy_profile_settings())
+        dusk.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        dusk.evaluate_moxa_state({"di2": False, "alarm": False})
+        pre_sunset_rain = dusk.evaluate_moxa_outputs(
+            now=datetime(2026, 9, 18, 18, 10), random_value=0.99
+        )
+        self.assertEqual(pre_sunset_rain["do4"], "ON")
+
+    def test_pre_light_rain_respects_cooldown_after_random_rain(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+
+        random_rain = logic.evaluate_moxa_outputs(
+            now=datetime(2026, 9, 18, 5, 39), random_value=0.04
+        )
+        pre_light_window = logic.evaluate_moxa_outputs(
+            now=datetime(2026, 9, 18, 5, 40), random_value=0.0
+        )
+
+        self.assertEqual(random_rain["do4"], "ON")
+        self.assertEqual(pre_light_window["do4"], "OFF")
+        self.assertNotIn("2026-09-18:sunrise", logic.scheduled_rain_events)
+
+    def test_random_rain_is_not_followed_by_mist(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        start = datetime(2026, 9, 18, 12, 0)
+
+        logic.evaluate_moxa_outputs(now=start, random_value=0.04)
+        after_rain = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=61), random_value=0.99)
+
+        self.assertEqual(after_rain["do5"], "OFF")
+
+    def test_humidity_target_and_temperature_target_control_fans_and_heater(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        now = datetime(2026, 9, 18, 12, 0)
+        logic.update_sensor_state({"temperature_top": 30.0, "humidity_top": 95.0})
+
+        at_five_above = logic.evaluate_fan_command(climate_time=now)
+        self.assertEqual(at_five_above["level"], 50)
+
+        logic.update_sensor_state({"temperature_top": 30.1, "humidity_top": 96.0})
+        above_five = logic.evaluate_fan_command(climate_time=now)
+        self.assertEqual(above_five["level"], 100)
+        self.assertEqual(logic.evaluate_moxa_outputs(now=now, random_value=0.99)["do5"], "OFF")
+
+        logic.update_sensor_state({"temperature_top": 24.0, "humidity_top": 90.0})
+        self.assertEqual(logic.evaluate_heater_command(climate_time=now)["do6"], "ON")
+
+        logic.update_sensor_state({"temperature_top": 19.0, "humidity_top": 90.0})
+        low_temperature_fans = logic.evaluate_fan_command(climate_time=now)
+        self.assertEqual(low_temperature_fans["level"], 30)
+        self.assertEqual(logic.evaluate_heater_command(climate_time=now)["do6"], "ON")
 
     def test_rainstorm_is_blocked_by_leak(self):
         logic = TerrariumLogic()
@@ -160,26 +394,45 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertFalse(storm["active"])
         self.assertEqual(storm["reason"], "safety_block")
 
-    def test_inactive_ro_level_does_not_block_rainstorm_or_mistmaker(self):
-        logic = TerrariumLogic()
-        logic.update_sensor_state({"humidity_top": 70})
+    def test_random_rain_does_not_start_post_rain_mist(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
         logic.evaluate_moxa_state({"di0": False, "di1": True, "di2": False})
 
-        storm = logic.evaluate_rainstorm(now=1000, random_value=0.0)
-        outputs = logic.evaluate_moxa_outputs()
+        rain = logic.evaluate_moxa_outputs(
+            now=datetime(2026, 9, 18, 12, 0), random_value=0.04
+        )
+        after_rain = logic.evaluate_moxa_outputs(
+            now=datetime(2026, 9, 18, 12, 1, 1), random_value=0.99
+        )
 
-        self.assertTrue(storm["active"])
-        self.assertEqual(outputs["do5"], "ON")
-        self.assertEqual(outputs["do15"], "OFF")
+        self.assertEqual(rain["do4"], "ON")
+        self.assertEqual(rain["do5"], "OFF")
+        self.assertEqual(after_rain["do5"], "OFF")
 
-    def test_inactive_refill_input_does_not_block_irrigation(self):
+    def test_high_humidity_ventilation_suppresses_post_rain_mist(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        start = datetime(2026, 9, 18, 5, 40)
+        logic.update_sensor_state({"humidity_left": 80, "humidity_top": 80, "humidity_right": 80})
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+        logic.evaluate_moxa_outputs(now=start, random_value=0.99)
+
+        logic.update_sensor_state({"humidity_left": 96, "humidity_top": 96, "humidity_right": 96})
+        post_rain = logic.evaluate_moxa_outputs(now=start + timedelta(seconds=61), random_value=0.99)
+        fans = logic.evaluate_fan_command(climate_time=start + timedelta(seconds=61))
+
+        self.assertEqual(post_rain["do5"], "OFF")
+        self.assertEqual(fans["level"], 100)
+
+    def test_soil_reading_alone_does_not_start_rain_pump(self):
         logic = TerrariumLogic({"seasons": {"rainy": {"rainstorm": {"enabled": False}}}})
         logic.update_sensor_state({"soil_left": 20})
         logic.evaluate_moxa_state({"di1": False, "di2": False})
 
         outputs = logic.evaluate_moxa_outputs()
 
-        self.assertEqual(outputs["do4"], "ON")
+        self.assertEqual(outputs["do4"], "OFF")
         self.assertEqual(outputs["do12"], "OFF")
 
     def test_fan_levels_follow_editable_settings(self):
@@ -233,9 +486,12 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertTrue(published[2][1]["alarm"])
         self.assertEqual(published[2][1]["do12"], "OFF")
         self.assertEqual(published[2][1]["do15"], "OFF")
+        self.assertEqual(published[2][1]["do10"], "OFF")
+        self.assertEqual(published[2][1]["do11"], "OFF")
 
     def test_mqtt_controller_maps_sensor_and_safety_messages(self):
         controller = TerrariumMQTTController(broker="example.local")
+        controller.logic.rainstorm["enabled"] = False
         published = []
         controller.publish = lambda topic, payload: published.append((topic, payload))
 
@@ -256,7 +512,7 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(moxa_commands[-1]["do15"], "ON")
         controller.handle_message("esp32/sensors", json.dumps({"temperature_top": 25, "humidity_top": 70}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
-        self.assertEqual(moxa_commands[-1]["do5"], "ON")
+        self.assertEqual(moxa_commands[-1]["do5"], "OFF")
 
         controller.handle_message("moxa/status", json.dumps({"di0": False, "di1": True, "di2": False}))
         moxa_commands = [payload for topic, payload in published if topic == "moxa/cmd/output"]
@@ -296,7 +552,7 @@ class TerrariumLogicTests(unittest.TestCase):
             "state": True,
         })
         self.assertEqual(published[-1][0], "moxa/cmd/output")
-        self.assertEqual(published[-1][1]["do7"], "ON")
+        self.assertEqual(published[-1][1]["do10"], "ON")
 
     def test_rainforest_transition_steps(self):
         logic = TerrariumLogic()
@@ -433,6 +689,83 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(messages[0].topic, "esp32/sensors")
         self.assertEqual(messages[0].payload, b'{"temperature_top": 24.5}')
 
+    def test_service_publishes_scheduled_orchid_dripper_output(self):
+        class FakeClient:
+            def __init__(self):
+                self.published = []
+
+            def publish(self, topic, payload):
+                self.published.append((topic, payload))
+                return type("PublishResult", (), {"rc": 0})()
+
+            def disconnect(self):
+                return None
+
+        client = FakeClient()
+        service = TerrariumMQTTService(
+            "example.local",
+            settings={
+                "orchid_dripper": {
+                    "enabled": True,
+                    "auto_mode": True,
+                    "cycle_minutes": 90,
+                    "duration_seconds": 45,
+                },
+            },
+            client_factory=lambda: client,
+        )
+        service.status.update("moxa", {"status": "online"})
+        service.controller.logic.evaluate_moxa_state({"di2": False, "alarm": False})
+
+        service._publish_scheduled_pumps(now=0)
+        service._publish_scheduled_pumps(now=5400)
+
+        output_payloads = [
+            json.loads(payload)
+            for topic, payload in client.published
+            if topic == "moxa/cmd/output"
+        ]
+        self.assertEqual(output_payloads[-1], {"do11": "ON"})
+        service.stop()
+
+    def test_service_starts_and_stops_pump_scheduler_on_mqtt_connect(self):
+        class FakeClient:
+            def __init__(self):
+                self.published = []
+
+            def publish(self, topic, payload):
+                self.published.append((topic, payload))
+                return type("PublishResult", (), {"rc": 0})()
+
+            def subscribe(self, _topic):
+                return None
+
+            def disconnect(self):
+                return None
+
+        client = FakeClient()
+        service = TerrariumMQTTService(
+            "example.local",
+            settings={
+                "orchid_dripper": {
+                    "enabled": True,
+                    "auto_mode": True,
+                    "cycle_minutes": 90,
+                    "duration_seconds": 45,
+                },
+            },
+            client_factory=lambda: client,
+        )
+        service.status.update("moxa", {"status": "online"})
+        service.controller.logic.evaluate_moxa_state({"di2": False, "alarm": False})
+
+        service._on_connect(client, None, {}, 0)
+        scheduler = service._pump_scheduler_thread
+        service.stop()
+
+        self.assertIsNotNone(scheduler)
+        self.assertFalse(scheduler.is_alive())
+
     def test_status_store_returns_copy_of_system_status(self):
         import tempfile
 
@@ -449,6 +782,7 @@ class TerrariumLogicTests(unittest.TestCase):
             self.assertEqual(snapshot["moxa"]["status"], "online")
             snapshot["moxa"]["status"] = "changed"
             self.assertEqual(store.snapshot()["moxa"]["status"], "online")
+            store._database.close()
 
 
 if __name__ == "__main__":

@@ -35,9 +35,12 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] seizoen bepaalt de lichtsterkte (`rainy` / `dry`)
 - [ ] temperatuur binnen min/max houden
 - [ ] luchtvochtigheid binnen min/max houden
-- [x] mistmaker bij droge of te lage RH activeren
-- [x] irrigatie bij vochttekort activeren
-- [x] willekeurige regenbui tijdens `rainy` met configureerbare duur en cooldown
+- [x] regen alleen bij actieve minimum-RH tijdens 5%-trigger of pre-lightvenster
+- [x] regenpuls maximaal 1 minuut; geen soil-gestuurde DO4-aansturing
+- [x] napermist 10 minuten uitsluitend na geplande regen; hoge RH onderdrukt mist
+- [x] ventilatie op basis van actieve temperatuur- en RH-targets
+- [x] warmtelamp aan onder het actieve temperatuurtarget
+- [x] lekalarm onderdrukt regen, mist en bijvulpompen
 - [x] verlichting aanpassen op zon op / zon onder
 - [x] verlichting heeft een 20-minuten dawn/dusk ramp
 - [x] na Pi-restart lichtregeling start op basis van de actuele kloktijd
@@ -70,6 +73,10 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] Moxa-LED-voedingen zijn 's nachts uit en overdag aan
 - [x] Moxa DO-commando's gebruiken `ioThinx_4510/write/DO@DO-xx/doStatus`
 - [x] outputwaarden gebruiken numerieke payloads (`{"value":1}` / `{"value":0}`)
+- [x] DO10-waterval en DO11-orchideeëndruppelaar via JSON-cycli
+- [x] DO10 standaard uit tot de beplanting geworteld is
+- [x] DO10/DO11 fail-off bij offline Moxa of lekalarm
+- [x] soilmetingen starten DO4 niet
 - [x] DO00-DO03 en DO05 live geactiveerd en bevestigd met `value:1`
 - [x] geen mistmaker/beregening bij lek of laag reservoir
 
@@ -99,7 +106,10 @@ Deze checklist is bedoeld als functionele control baseline voor het terrariumpro
 - [x] lekdetectie in unit tests
 - [x] reservoir laag in unit tests
 - [x] regenbui alleen in regenseizoen in unit tests
-- [x] regenbui geblokkeerd door lek of leeg reservoir in unit tests
+- [x] regenbui geblokkeerd boven minimum-RH en door lekalarm in unit tests
+- [x] geplande napermist en 1-minutenregen in unit tests
+- [x] targetgestuurde ventilatie en heater in unit tests
+- [x] DO10/DO11 JSON-cycli, duur en fail-off in unit tests
 - [x] Pi-restart recovery in unit tests
 - [ ] MQTT offline live testen
 - [ ] RO-niveau live testen
@@ -143,7 +153,9 @@ Moxa-ingang correct bedraad is. Schakel water- en mistapparatuur bij live tests
 alleen onder toezicht in.
 - [x] reservoir laag in unit tests
 - [x] regenbui alleen in regenseizoen in unit tests
-- [x] regenbui geblokkeerd door lek of leeg reservoir in unit tests
+- [x] regenbui geblokkeerd boven minimum-RH en door lekalarm in unit tests
+- [x] geplande napermist en 1-minutenregen in unit tests
+- [x] targetgestuurde ventilatie en heater in unit tests
 - [ ] MQTT offline live testen
 - [ ] RO-niveau live testen
 - [ ] Moxa DI-inputs live testen

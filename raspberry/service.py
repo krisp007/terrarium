@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import signal
+import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -54,6 +55,12 @@ class TerrariumMQTTService:
             )
         self.status = StatusStore()
         self.status_server = None
+        self._pump_scheduler_stop = threading.Event()
+        self._pump_scheduler_thread: Optional[threading.Thread] = None
+        self._last_scheduled_pump_outputs: dict[str, Optional[str]] = {
+            "do10": None,
+            "do11": None,
+        }
         self.status.update("service", {"status": "online", "started_at": int(time.time())})
 
         self.client.on_connect = self._on_connect
@@ -118,6 +125,7 @@ class TerrariumMQTTService:
         client.subscribe(MOXA_READ_TOPIC)
         self.status.update("mqtt", {"status": "connected", "broker": f"{self.broker}:{self.port}"})
         self.controller.publish_current_state(now=datetime.now())
+        self._start_pump_scheduler()
         LOGGER.info("Connected to MQTT broker %s:%s", self.broker, self.port)
 
     def _on_message(self, client: Any, userdata: Any, message: Any) -> None:
@@ -180,8 +188,54 @@ class TerrariumMQTTService:
         except (ValueError, TypeError, json.JSONDecodeError):
             LOGGER.warning("Invalid Moxa DI message on %s", topic)
 
+    def _start_pump_scheduler(self) -> None:
+        if self._pump_scheduler_thread is not None and self._pump_scheduler_thread.is_alive():
+            return
+        settings = self.controller.logic.settings
+        enabled = any(
+            isinstance(settings.get(name), dict)
+            and settings[name].get("enabled") is True
+            and settings[name].get("auto_mode") is True
+            for name in ("waterfall", "orchid_dripper")
+        )
+        if not enabled:
+            return
+        self._pump_scheduler_stop.clear()
+        self._pump_scheduler_thread = threading.Thread(
+            target=self._pump_scheduler_loop,
+            name="aux-pump-scheduler",
+            daemon=True,
+        )
+        self._pump_scheduler_thread.start()
+
+    def _pump_scheduler_loop(self) -> None:
+        while not self._pump_scheduler_stop.is_set():
+            try:
+                self._publish_scheduled_pumps()
+            except Exception:
+                LOGGER.exception("Scheduled pump evaluation failed")
+            self._pump_scheduler_stop.wait(1)
+
+    def _publish_scheduled_pumps(self, now: Optional[float] = None) -> None:
+        moxa_online = self.status.snapshot().get("moxa", {}).get("status") == "online"
+        outputs = self.controller.logic.evaluate_scheduled_pump_outputs(
+            now=now,
+            moxa_online=moxa_online,
+        )
+        changed = {
+            key: value
+            for key, value in outputs.items()
+            if self._last_scheduled_pump_outputs.get(key) != value
+        }
+        self._last_scheduled_pump_outputs.update(outputs)
+        if changed:
+            self._publish("moxa/cmd/output", changed)
+
     def stop(self, *_signals: int) -> None:
         LOGGER.info("Stopping terrarium MQTT service")
+        self._pump_scheduler_stop.set()
+        if self._pump_scheduler_thread is not None:
+            self._pump_scheduler_thread.join(timeout=2)
         if self.serial_bridge is not None:
             self.serial_bridge.stop()
         self.status.update("service", {"status": "stopping"})

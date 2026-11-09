@@ -32,11 +32,11 @@ MQTT-broker: `192.168.24.166:1883`
 | DO4 | Beregening | Activering irrigatie |
 | DO5 | Mistmaker | Activering mistmaker |
 | DO6 | Warmtelamp | Verlichting / warmte |
-| DO7 | Watervalpomp | Waterstroom / extra circulatie |
+| DO7 | Reserve | Vrije output |
 | DO8 | Reserve | Vrije output / toekomstige functie |
 | DO9 | Pomp 1 mistmaker | Toekomstige of extra pompfunctie |
-| DO10 | Pomp 2 beregening | Toekomstige of extra pompfunctie |
-| DO11 | Pomp 3 | Reserve |
+| DO10 | Watervalpomp | Voorlopig uitgeschakeld tot de beplanting geworteld is |
+| DO11 | Orchideeën druppelaar | JSON-cyclus: elke 90 minuten 45 seconden aan |
 | DO12 | Aquarium bijvulpomp | Bekrachtigd = aquarium bijvullen |
 | DO13 | Reserve | Vrije output |
 | DO14 | Reserve | Vrije output |

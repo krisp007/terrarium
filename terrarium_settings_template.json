@@ -8,12 +8,12 @@
     "notes": "Rainforest terrarium profile with high humidity, frequent misting, and gentle airflow."
   },
   "schedule": {
-    "sunrise": "05:45",
-    "sunset": "18:15",
-    "day_start": "05:45",
-    "day_end": "18:15",
-    "night_start": "18:15",
-    "night_end": "05:45",
+    "sunrise": "07:45",
+    "sunset": "20:15",
+    "day_start": "07:45",
+    "day_end": "20:15",
+    "night_start": "20:15",
+    "night_end": "07:45",
     "auto_day_night": true
   },
   "seasons": {
@@ -61,8 +61,10 @@
       "rainstorm": {
         "enabled": true,
         "chance_percent": 5,
-        "duration_minutes": 2,
-        "cooldown_minutes": 30
+        "duration_minutes": 1,
+        "cooldown_minutes": 30,
+        "pre_light_lead_minutes": 5,
+        "post_rain_mist_minutes": 10
       },
       "day": {
         "temperature": {
@@ -201,6 +203,18 @@
     "auto_mode": true,
     "cycle_minutes": 20,
     "duration_seconds": 25
+  },
+  "waterfall": {
+    "enabled": false,
+    "auto_mode": true,
+    "cycle_minutes": 90,
+    "duration_seconds": 45
+  },
+  "orchid_dripper": {
+    "enabled": true,
+    "auto_mode": true,
+    "cycle_minutes": 90,
+    "duration_seconds": 45
   },
   "safety": {
     "leak_detected": "shutdown_mist_and_irrigation",
