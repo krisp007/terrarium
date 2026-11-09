@@ -208,6 +208,29 @@ class TerrariumLogicTests(unittest.TestCase):
 
         self.assertEqual(command["level"], 30)
 
+    def test_middle_fans_are_off_at_night_but_daytime_fan_control_remains(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"temperature_top": 27.0, "humidity_top": 95.0})
+
+        night = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 21, 0),
+        )
+        day = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 12, 0),
+        )
+
+        self.assertEqual(
+            [night["channels"][f"fan{number}"] for number in range(2, 6)],
+            [0, 0, 0, 0],
+        )
+        self.assertEqual(night["channels"]["fan1"], 30)
+        self.assertEqual(day["channels"]["fan2"], 50)
+        self.assertEqual(day["channels"]["fan3"], 50)
+        self.assertEqual(day["channels"]["fan4"], 50)
+        self.assertEqual(day["channels"]["fan5"], 50)
+
     def test_manual_fan_override_blocks_minimum_airflow_until_auto(self):
         logic = TerrariumLogic()
         logic.set_fan_override({f"fan{number}": 0 for number in range(1, 7)})

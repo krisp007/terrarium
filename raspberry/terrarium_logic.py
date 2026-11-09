@@ -474,9 +474,14 @@ class TerrariumLogic:
         """Compute a safe fan level from the current average temperature."""
         current_time = time.time() if now is None else now
         active_minimum_fan = 1 if int(current_time / self.minimum_airflow_interval_seconds) % 2 == 0 else 6
+        climate = self._active_climate_targets(climate_time)
+        is_night = climate["period"] == "night"
         if not self.sensor_state:
             level = 0
-            return self._apply_fan_overrides(self._fan_command(level, active_minimum_fan), current_time)
+            return self._apply_fan_overrides(
+                self._fan_command(level, active_minimum_fan, is_night),
+                current_time,
+            )
 
         temps = [
             float(value)
@@ -488,7 +493,6 @@ class TerrariumLogic:
             for key, value in self.sensor_state.items()
             if key.startswith("humidity_") and isinstance(value, (int, float))
         ]
-        climate = self._active_climate_targets(climate_time)
         level = self.fan_levels["low"]
         seasons = self.settings.get("seasons", {})
         has_season_targets = isinstance(seasons, dict) and bool(seasons)
@@ -517,7 +521,10 @@ class TerrariumLogic:
                 self._ventilation_level(average_humidity - float(climate["humidity_target"])),
             )
 
-        return self._apply_fan_overrides(self._fan_command(int(level), active_minimum_fan), current_time)
+        return self._apply_fan_overrides(
+            self._fan_command(int(level), active_minimum_fan, is_night),
+            current_time,
+        )
 
     def _ventilation_level(self, target_delta: float) -> int:
         if target_delta > 5:
@@ -593,20 +600,26 @@ class TerrariumLogic:
             "overrides": {name: item.get("expires_at") for name, item in self.manual_led_overrides.items()},
         }
 
-    def _fan_command(self, level: int, active_minimum_fan: int) -> Dict[str, object]:
+    def _fan_command(
+        self,
+        level: int,
+        active_minimum_fan: int,
+        is_night: bool = False,
+    ) -> Dict[str, object]:
         """Keep one of the two end fans moving to prevent stagnant air."""
         level = max(int(level), self.minimum_airflow_percent)
         fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
         fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
+        regular_level = 0 if is_night else level
         return {
             "mode": "auto",
             "level": level,
             "channels": {
                 "fan1": fan1,
-                "fan2": level,
-                "fan3": level,
-                "fan4": level,
-                "fan5": level,
+                "fan2": regular_level,
+                "fan3": regular_level,
+                "fan4": regular_level,
+                "fan5": regular_level,
                 "fan6": fan6,
             },
             "minimum_airflow": {
