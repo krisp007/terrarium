@@ -189,6 +189,7 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 <div class="ventilation-header"><h2 id="ventilation-title">Ventilation</h2><div id="fan-state" role="status" aria-live="polite">Waiting for fan command</div></div>
 <p id="fan-sequence" class="ventilation-sequence">Minimum airflow sequence: F1 -&gt; F6 -&gt; F1</p>
 <div class="fan-channels"><div class="fan-channel" id="fan-1"><span>F1</span><span class="fan-level" id="fan-1-level">--</span></div><div class="fan-channel" id="fan-2"><span>F2</span><span class="fan-level" id="fan-2-level">--</span></div><div class="fan-channel" id="fan-3"><span>F3</span><span class="fan-level" id="fan-3-level">--</span></div><div class="fan-channel" id="fan-4"><span>F4</span><span class="fan-level" id="fan-4-level">--</span></div><div class="fan-channel" id="fan-5"><span>F5</span><span class="fan-level" id="fan-5-level">--</span></div><div class="fan-channel" id="fan-6"><span>F6</span><span class="fan-level" id="fan-6-level">--</span></div></div>
+<p id="fan-feedback" class="ventilation-sequence">Waiting for ESP32 PWM acknowledgement; physical fan RPM is not measured.</p>
 </section>
 <section class="lighting" aria-labelledby="lighting-title">
 <div class="lighting-header"><h2 id="lighting-title">Lighting</h2><div id="light-state" role="status" aria-live="polite">Waiting for lighting command</div></div>
@@ -214,6 +215,7 @@ const aquariumTemperature=document.querySelector('#aquarium-temperature');
 const sensorState=document.querySelector('#sensor-state');
 const fanState=document.querySelector('#fan-state');
 const fanSequence=document.querySelector('#fan-sequence');
+const fanFeedback=document.querySelector('#fan-feedback');
 const lightState=document.querySelector('#light-state');
 const lightingSequence=document.querySelector('#lighting-sequence');
 const seasonStatus=document.querySelector('#season-status');
@@ -241,9 +243,9 @@ function averageReading(sensors,prefix){
  return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
 }
 function showReading(element,value){element.textContent=value===null?'--':value.toFixed(1);}
-function showFanStatus(commands){
+function showFanStatus(commands,esp32){
  const command=commands?.['esp32/cmd/fans'];
- if(!command){fanState.textContent='Fan command unavailable';fanSequence.textContent='Minimum airflow sequence unavailable';return;}
+ if(!command){fanState.textContent='Fan command unavailable';fanSequence.textContent='Minimum airflow sequence unavailable';fanFeedback.textContent='ESP32 PWM acknowledgement unavailable; physical fan RPM is not measured.';return;}
  const channels=command.channels||{};
  const minimum=command.minimum_airflow||{};
  const activeFan=Number(minimum.active_fan);
@@ -252,10 +254,14 @@ function showFanStatus(commands){
     level.textContent=typeof value==='number'&&Number.isFinite(value)?`${value}%`:'--';
     element.classList.toggle('sequence-active',command.mode==='auto'&&minimum.enabled===true&&fanNumber===activeFan);
  });
- fanState.textContent=`${command.mode==='manual'?'Manual':'Automatic'} · ${typeof command.level==='number'?`${command.level}%`:''}`.trim();
+ fanState.textContent=`${command.mode==='manual'?'Manual':'Automatic'} · command ${typeof command.level==='number'?`${command.level}%`:''}`.trim();
  fanSequence.textContent=minimum.enabled===true&&command.mode==='auto'
     ?`Minimum airflow: F1 -> F6 -> F1, switches every 60 s. Active: F${activeFan} at ${minimum.percent}%`
     :minimum.enabled===true?'Minimum airflow sequence paused during manual control':'Minimum airflow sequence disabled';
+ const applied=esp32?.fan_output?.channels;
+ fanFeedback.textContent=applied
+  ?`ESP32 applied PWM: ${fanChannels.map((_,index)=>`F${index+1} ${applied[`fan${index+1}`]??'--'}%`).join(' · ')}. Physical fan RPM is not measured.`
+  :'Waiting for ESP32 PWM acknowledgement; physical fan RPM is not measured.';
 }
 function showLightingStatus(commands){
  const command=commands?.['esp32/cmd/lights'];
@@ -319,7 +325,7 @@ async function refresh(){
   if(!response.ok)throw new Error('Status request failed');
   const status=await response.json();
     showOperationalStatus(status);
-    showFanStatus(status.commands);
+    showFanStatus(status.commands,status.esp32);
     showLightingStatus(status.commands);
   const sensors=status.esp32?.sensors||{};
   const temperatureValue=averageReading(sensors,'temperature_');
@@ -338,7 +344,7 @@ async function refresh(){
  }catch{
     alarmBar.className='alarm-bar critical';
     alarmBar.textContent='Pi status unavailable';
-    showFanStatus(null);
+    showFanStatus(null,null);
     showLightingStatus(null);
   showReading(temperature,null);
   showReading(humidity,null);

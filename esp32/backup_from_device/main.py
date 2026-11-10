@@ -48,6 +48,11 @@ def handle_fan_command(message):
             fan_name = f"fan{channel + 1}"
             vent_controller.set_fan(channel, target_outputs[fan_name])
             fan_outputs[fan_name] = target_outputs[fan_name]
+        send_frame("esp32/fans/status", {
+            "mode": command.get("mode", "auto"),
+            "channels": dict(fan_outputs),
+            "minimum_airflow": command.get("minimum_airflow", {}),
+        })
         print("Fan command applied", command)
     except Exception as error:
         print("Fan command error", error)

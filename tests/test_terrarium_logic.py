@@ -454,7 +454,11 @@ class TerrariumLogicTests(unittest.TestCase):
         fans = logic.evaluate_fan_command(climate_time=start + timedelta(seconds=61))
 
         self.assertEqual(post_rain["do5"], "OFF")
-        self.assertEqual(fans["level"], 100)
+        self.assertEqual(fans["level"], 30)
+        self.assertEqual(
+            [fans["channels"][f"fan{number}"] for number in range(2, 6)],
+            [0, 0, 0, 0],
+        )
 
     def test_soil_reading_alone_does_not_start_rain_pump(self):
         logic = TerrariumLogic({"seasons": {"rainy": {"rainstorm": {"enabled": False}}}})
@@ -590,7 +594,7 @@ class TerrariumLogicTests(unittest.TestCase):
             "intensity": 45,
         })
         self.assertEqual(published[-1][0], "esp32/cmd/fans")
-        self.assertEqual(published[-1][1]["level"], 30)
+        self.assertEqual(published[-1][1]["level"], 45)
         self.assertEqual(published[-1][1]["channels"]["fan2"], 45)
 
         controller.apply_override({
@@ -706,6 +710,14 @@ class TerrariumLogicTests(unittest.TestCase):
         })())
         esp32_status = service.status.snapshot()["esp32"]
         self.assertIn("last_sensor_seen", esp32_status)
+        client.on_message(client, None, type("Message", (), {
+            "topic": "esp32/fans/status",
+            "payload": b'{"channels":{"fan1":30,"fan2":0,"fan3":0,"fan4":0,"fan5":0,"fan6":0}}',
+        })())
+        self.assertEqual(
+            service.status.snapshot()["esp32"]["fan_output"]["channels"]["fan1"],
+            30,
+        )
         client.on_message(client, None, type("Message", (), {
             "topic": "moxa/status",
             "payload": b'{"di0": true, "di1": false, "di2": false}',

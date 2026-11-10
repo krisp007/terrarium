@@ -162,6 +162,15 @@ class TerrariumMQTTService:
                     "last_status_seen": received_at,
                 })
                 self.status.record("esp32_status", esp_status, topic=message.topic)
+            elif message.topic == "esp32/fans/status":
+                fan_output = json.loads(payload)
+                if not isinstance(fan_output, dict):
+                    raise ValueError("ESP32 fan status payload must be a JSON object")
+                self.status.update("esp32", {
+                    "fan_output": fan_output,
+                    "last_fan_output_seen": int(time.time()),
+                })
+                self.status.record("esp32_fan_status", fan_output, topic=message.topic)
             elif message.topic == "moxa/status":
                 moxa_status = json.loads(payload)
                 if not isinstance(moxa_status, dict):

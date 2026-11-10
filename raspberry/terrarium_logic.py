@@ -611,9 +611,10 @@ class TerrariumLogic:
         fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
         fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
         regular_level = 0 if is_night else level
+        commanded_level = max(fan1, regular_level, fan6)
         return {
             "mode": "auto",
-            "level": level,
+            "level": commanded_level,
             "channels": {
                 "fan1": fan1,
                 "fan2": regular_level,
@@ -641,7 +642,13 @@ class TerrariumLogic:
             active_overrides[fan_name] = expires_at
         if not active_overrides:
             return command
-        return {**command, "mode": "manual", "channels": channels, "overrides": active_overrides}
+        return {
+            **command,
+            "mode": "manual",
+            "level": max(channels.values(), default=0),
+            "channels": channels,
+            "overrides": active_overrides,
+        }
 
     def update_heartbeat(self, timestamp: int) -> None:
         """Record the last successful ESP32 heartbeat timestamp."""

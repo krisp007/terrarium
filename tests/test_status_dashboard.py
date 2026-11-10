@@ -45,6 +45,8 @@ class StatusDashboardTests(unittest.TestCase):
         self.assertIn("Ventilation", page)
         self.assertIn('id="fan-state"', page)
         self.assertIn('id="fan-sequence"', page)
+        self.assertIn('id="fan-feedback"', page)
+        self.assertIn("physical fan RPM is not measured", page)
         self.assertIn('id="fan-6-level"', page)
         self.assertIn("F1 -> F6 -> F1", page)
         self.assertIn("Lighting", page)
