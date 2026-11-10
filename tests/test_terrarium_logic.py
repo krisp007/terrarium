@@ -18,12 +18,12 @@ class TerrariumLogicTests(unittest.TestCase):
                 "rainy": {
                     "active": True,
                     "day": {
-                        "temperature": {"target_c": 25.0},
-                        "humidity": {"min_percent": 80.0, "target_percent": 90.0},
+                        "temperature": {"min_c": 23.5, "max_c": 27.0, "target_c": 25.0},
+                        "humidity": {"min_percent": 80.0, "max_percent": 98.0, "target_percent": 90.0},
                     },
                     "night": {
-                        "temperature": {"target_c": 20.0},
-                        "humidity": {"min_percent": 80.0, "target_percent": 90.0},
+                        "temperature": {"min_c": 20.0, "max_c": 22.8, "target_c": 20.0},
+                        "humidity": {"min_percent": 80.0, "max_percent": 99.0, "target_percent": 90.0},
                     },
                     "rainstorm": {
                         "enabled": True,
@@ -210,12 +210,13 @@ class TerrariumLogicTests(unittest.TestCase):
 
     def test_middle_fans_are_off_at_night_but_daytime_fan_control_remains(self):
         logic = TerrariumLogic(self.rainy_profile_settings())
-        logic.update_sensor_state({"temperature_top": 27.0, "humidity_top": 95.0})
+        logic.update_sensor_state({"temperature_top": 21.5, "humidity_top": 95.0})
 
         night = logic.evaluate_fan_command(
             now=0,
             climate_time=datetime(2026, 9, 18, 21, 0),
         )
+        logic.update_sensor_state({"temperature_top": 25.0, "humidity_top": 90.0})
         day = logic.evaluate_fan_command(
             now=0,
             climate_time=datetime(2026, 9, 18, 12, 0),
@@ -226,10 +227,68 @@ class TerrariumLogicTests(unittest.TestCase):
             [0, 0, 0, 0],
         )
         self.assertEqual(night["channels"]["fan1"], 30)
-        self.assertEqual(day["channels"]["fan2"], 50)
+        self.assertEqual(night["channels"]["fan6"], 0)
+        self.assertEqual(day["channels"]["fan2"], 30)
         self.assertEqual(day["channels"]["fan3"], 50)
-        self.assertEqual(day["channels"]["fan4"], 50)
-        self.assertEqual(day["channels"]["fan5"], 50)
+        self.assertEqual(day["channels"]["fan4"], 0)
+        self.assertEqual(day["channels"]["fan5"], 0)
+
+    def test_temperature_range_cascades_middle_fans_in_four_levels(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.evaluate_moxa_state({"di2": False, "alarm": False})
+        expected = [
+            (23.4, [0, 0, 0, 0]),
+            (23.5, [30, 0, 0, 0]),
+            (24.7, [30, 50, 0, 0]),
+            (25.9, [30, 50, 80, 0]),
+            (27.0, [30, 50, 80, 100]),
+        ]
+
+        for temperature, expected_levels in expected:
+            with self.subTest(temperature=temperature):
+                logic.update_sensor_state({"temperature_top": temperature, "humidity_top": 90})
+                command = logic.evaluate_fan_command(
+                    now=0,
+                    climate_time=datetime(2026, 9, 18, 12, 0),
+                )
+                self.assertEqual(
+                    [command["channels"][f"fan{number}"] for number in range(2, 6)],
+                    expected_levels,
+                )
+                self.assertEqual(command["channels"]["fan1"], 100 if temperature >= 27.0 else 30)
+                self.assertEqual(command["channels"]["fan6"], 100 if temperature >= 27.0 else 0)
+
+    def test_humidity_max_forces_full_fans_unless_cold_or_night(self):
+        logic = TerrariumLogic(self.rainy_profile_settings())
+        logic.update_sensor_state({"temperature_top": 24.0, "humidity_top": 99})
+
+        humid_day = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 12, 0),
+        )
+        cold_day = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 12, 0),
+        )
+        logic.update_sensor_state({"temperature_top": 20.0, "humidity_top": 99})
+        cold_day = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 12, 0),
+        )
+        night = logic.evaluate_fan_command(
+            now=0,
+            climate_time=datetime(2026, 9, 18, 22, 0),
+        )
+
+        self.assertEqual([humid_day["channels"][f"fan{n}"] for n in range(2, 6)], [100] * 4)
+        self.assertEqual(humid_day["channels"]["fan1"], 100)
+        self.assertEqual(humid_day["channels"]["fan6"], 100)
+        self.assertEqual([cold_day["channels"][f"fan{n}"] for n in range(2, 6)], [0] * 4)
+        self.assertEqual(cold_day["channels"]["fan1"], 30)
+        self.assertEqual(cold_day["channels"]["fan6"], 0)
+        self.assertEqual([night["channels"][f"fan{n}"] for n in range(2, 6)], [0] * 4)
+        self.assertEqual(night["channels"]["fan1"], 100)
+        self.assertEqual(night["channels"]["fan6"], 100)
 
     def test_manual_fan_override_blocks_minimum_airflow_until_auto(self):
         logic = TerrariumLogic()
@@ -398,14 +457,14 @@ class TerrariumLogicTests(unittest.TestCase):
     def test_humidity_target_and_temperature_target_control_fans_and_heater(self):
         logic = TerrariumLogic(self.rainy_profile_settings())
         now = datetime(2026, 9, 18, 12, 0)
-        logic.update_sensor_state({"temperature_top": 30.0, "humidity_top": 95.0})
+        logic.update_sensor_state({"temperature_top": 25.0, "humidity_top": 90.0})
 
-        at_five_above = logic.evaluate_fan_command(climate_time=now)
-        self.assertEqual(at_five_above["level"], 50)
+        middle_cascade = logic.evaluate_fan_command(climate_time=now)
+        self.assertEqual(middle_cascade["level"], 50)
 
-        logic.update_sensor_state({"temperature_top": 30.1, "humidity_top": 96.0})
-        above_five = logic.evaluate_fan_command(climate_time=now)
-        self.assertEqual(above_five["level"], 100)
+        logic.update_sensor_state({"temperature_top": 27.1, "humidity_top": 96.0})
+        above_maximum = logic.evaluate_fan_command(climate_time=now)
+        self.assertEqual(above_maximum["level"], 100)
         self.assertEqual(logic.evaluate_moxa_outputs(now=now, random_value=0.99)["do5"], "OFF")
 
         logic.update_sensor_state({"temperature_top": 24.0, "humidity_top": 90.0})

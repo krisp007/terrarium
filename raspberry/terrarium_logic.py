@@ -162,8 +162,11 @@ class TerrariumLogic:
             "period": period_name,
             "sunrise": sunrise,
             "sunset": sunset,
+            "temperature_min": float(temperature.get("min_c", temperature.get("target_c", self.heater_thresholds["temperature_too_low_c"]))),
+            "temperature_max": float(temperature.get("max_c", temperature.get("target_c", self.heater_thresholds["temperature_too_high_c"]))),
             "temperature_target": float(temperature.get("target_c", self.heater_thresholds["temperature_too_low_c"])),
             "humidity_min": float(humidity.get("min_percent", self.mistmaker_on_humidity)),
+            "humidity_max": float(humidity.get("max_percent", self.mistmaker_off_humidity)),
             "humidity_target": float(humidity.get("target_percent", self.mistmaker_off_humidity)),
         }
     def update_sensor_state(self, payload: Dict[str, object]) -> Dict[str, object]:
@@ -496,8 +499,11 @@ class TerrariumLogic:
         level = self.fan_levels["low"]
         seasons = self.settings.get("seasons", {})
         has_season_targets = isinstance(seasons, dict) and bool(seasons)
+        temperature_average = sum(temps) / len(temps) if temps else None
+        humidity_average = sum(humidity_values) / len(humidity_values) if humidity_values else None
+        supplemental = {f"fan{number}": 0 for number in range(2, 6)}
         if temps and not has_season_targets:
-            average_temp = sum(temps) / len(temps)
+            average_temp = temperature_average
             if average_temp < self.fan_thresholds["low"]:
                 level = self.fan_levels["low"]
             elif average_temp < self.fan_thresholds["medium"]:
@@ -508,21 +514,59 @@ class TerrariumLogic:
                 level = self.fan_levels["high"]
             else:
                 level = self.fan_levels["max"]
+            supplemental = {f"fan{number}": level for number in range(2, 6)}
         elif temps:
-            average_temp = sum(temps) / len(temps)
-            level = max(
-                level,
-                self._ventilation_level(average_temp - float(climate["temperature_target"])),
-            )
-        if humidity_values:
-            average_humidity = sum(humidity_values) / len(humidity_values)
-            level = max(
-                level,
-                self._ventilation_level(average_humidity - float(climate["humidity_target"])),
-            )
+            minimum = float(climate["temperature_min"])
+            maximum = float(climate["temperature_max"])
+            temperature_range = max(0.0, maximum - minimum)
+            if temperature_average >= minimum and temperature_range > 0:
+                thresholds = (
+                    minimum,
+                    minimum + temperature_range / 3,
+                    minimum + 2 * temperature_range / 3,
+                    maximum,
+                )
+                levels = (
+                    self.fan_levels["low"],
+                    self.fan_levels["medium"],
+                    self.fan_levels["high"],
+                    self.fan_levels["max"],
+                )
+                stage = sum(temperature_average >= threshold for threshold in thresholds)
+                for index in range(min(stage, 4)):
+                    supplemental[f"fan{index + 2}"] = levels[index]
+
+        if (
+            not is_night
+            and (temperature_average is None or temperature_average >= float(climate["temperature_min"]))
+            and humidity_average is not None
+            and humidity_average >= float(climate["humidity_max"])
+        ):
+            supplemental = {f"fan{number}": self.fan_levels["max"] for number in range(2, 6)}
+        if is_night:
+            supplemental = {f"fan{number}": 0 for number in range(2, 6)}
+
+        temperature_max = (
+            float(climate["temperature_max"])
+            if has_season_targets
+            else self.fan_thresholds["max_safe"]
+        )
+        too_warm = temperature_average is not None and temperature_average >= temperature_max
+        too_wet = (
+            humidity_average is not None
+            and humidity_average >= float(climate["humidity_max"])
+            and (temperature_average is None or temperature_average >= float(climate["temperature_min"]))
+        )
+        full_end_fans = too_warm or too_wet
 
         return self._apply_fan_overrides(
-            self._fan_command(int(level), active_minimum_fan, is_night),
+            self._fan_command(
+                int(level),
+                active_minimum_fan,
+                is_night,
+                supplemental,
+                full_end_fans,
+            ),
             current_time,
         )
 
@@ -605,24 +649,26 @@ class TerrariumLogic:
         level: int,
         active_minimum_fan: int,
         is_night: bool = False,
+        supplemental_levels: Optional[Dict[str, int]] = None,
+        full_end_fans: bool = False,
     ) -> Dict[str, object]:
         """Keep one of the two end fans moving to prevent stagnant air."""
         level = max(int(level), self.minimum_airflow_percent)
-        fan1 = self.minimum_airflow_percent if active_minimum_fan == 1 else 0
-        fan6 = self.minimum_airflow_percent if active_minimum_fan == 6 else 0
+        end_fan_level = 100 if full_end_fans else self.minimum_airflow_percent
+        fan1 = end_fan_level if full_end_fans or active_minimum_fan == 1 else 0
+        fan6 = end_fan_level if full_end_fans or active_minimum_fan == 6 else 0
         regular_level = 0 if is_night else level
-        commanded_level = max(fan1, regular_level, fan6)
+        supplemental = supplemental_levels or {f"fan{number}": regular_level for number in range(2, 6)}
+        channels = {
+            "fan1": fan1,
+            **supplemental,
+            "fan6": fan6,
+        }
+        commanded_level = max(channels.values(), default=0)
         return {
             "mode": "auto",
             "level": commanded_level,
-            "channels": {
-                "fan1": fan1,
-                "fan2": regular_level,
-                "fan3": regular_level,
-                "fan4": regular_level,
-                "fan5": regular_level,
-                "fan6": fan6,
-            },
+            "channels": channels,
             "minimum_airflow": {
                 "enabled": True,
                 "active_fan": active_minimum_fan,
