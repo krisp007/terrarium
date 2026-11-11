@@ -548,14 +548,15 @@ class TerrariumLogicTests(unittest.TestCase):
             },
         })
         logic.update_sensor_state({"temperature_top": 25})
-        self.assertEqual(logic.evaluate_fan_command()["level"], 50)
+        midday = datetime(2026, 9, 18, 12, 0)
+        self.assertEqual(logic.evaluate_fan_command(climate_time=midday)["level"], 50)
 
         logic.update_settings({
             "fan_control": {
                 "fan_levels_percent": {"medium": 45},
             },
         })
-        self.assertEqual(logic.evaluate_fan_command()["level"], 45)
+        self.assertEqual(logic.evaluate_fan_command(climate_time=midday)["level"], 45)
 
     def test_no_heartbeat_sets_alarm(self):
         logic = TerrariumLogic()
@@ -869,6 +870,49 @@ class TerrariumLogicTests(unittest.TestCase):
             if topic == "moxa/cmd/output"
         ]
         self.assertEqual(output_payloads[-1], {"do11": "ON"})
+        service.stop()
+
+    def test_periodic_climate_tick_turns_rain_off_after_one_minute(self):
+        class FakeClient:
+            def __init__(self):
+                self.published = []
+
+            def publish(self, topic, payload):
+                self.published.append((topic, payload))
+                return type("PublishResult", (), {"rc": 0})()
+
+            def disconnect(self):
+                return None
+
+        client = FakeClient()
+        service = TerrariumMQTTService(
+            "example.local",
+            settings=self.rainy_profile_settings(),
+            client_factory=lambda: client,
+        )
+        service.status.update("moxa", {"status": "online"})
+        service.status.update("esp32", {
+            "status": "online",
+            "last_sensor_seen": int(datetime.now().timestamp()),
+        })
+        service.controller.logic.update_sensor_state({
+            "humidity_left": 80,
+            "humidity_top": 80,
+            "humidity_right": 80,
+        })
+        service.controller.logic.evaluate_moxa_state({"di2": False, "alarm": False})
+        start = datetime.now()
+        service.controller.logic.evaluate_moxa_outputs(now=start, random_value=0.0)
+
+        service._publish_timed_climate_outputs(now=start)
+        service._publish_timed_climate_outputs(now=start + timedelta(seconds=61))
+
+        rain_states = [
+            json.loads(payload).get("do4")
+            for topic, payload in client.published
+            if topic == "moxa/cmd/output"
+        ]
+        self.assertEqual(rain_states, ["ON", "OFF"])
         service.stop()
 
     def test_service_starts_and_stops_pump_scheduler_on_mqtt_connect(self):

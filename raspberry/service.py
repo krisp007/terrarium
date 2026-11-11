@@ -61,6 +61,10 @@ class TerrariumMQTTService:
             "do10": None,
             "do11": None,
         }
+        self._last_timed_climate_outputs: dict[str, Optional[str]] = {
+            "do4": None,
+            "do5": None,
+        }
         self.status.update("service", {"status": "online", "started_at": int(time.time())})
         self._refresh_dashboard_status()
 
@@ -217,12 +221,17 @@ class TerrariumMQTTService:
         if self._pump_scheduler_thread is not None and self._pump_scheduler_thread.is_alive():
             return
         settings = self.controller.logic.settings
-        enabled = any(
+        pump_schedule_enabled = any(
             isinstance(settings.get(name), dict)
             and settings[name].get("enabled") is True
             and settings[name].get("auto_mode") is True
             for name in ("waterfall", "orchid_dripper")
         )
+        seasons = settings.get("seasons", {})
+        rainy = seasons.get("rainy", {}) if isinstance(seasons, dict) else {}
+        rainstorm = rainy.get("rainstorm", {}) if isinstance(rainy, dict) else {}
+        climate_timer_enabled = isinstance(rainstorm, dict) and rainstorm.get("enabled") is True
+        enabled = pump_schedule_enabled or climate_timer_enabled
         if not enabled:
             return
         self._pump_scheduler_stop.clear()
@@ -237,8 +246,9 @@ class TerrariumMQTTService:
         while not self._pump_scheduler_stop.is_set():
             try:
                 self._publish_scheduled_pumps()
+                self._publish_timed_climate_outputs()
             except Exception:
-                LOGGER.exception("Scheduled pump evaluation failed")
+                LOGGER.exception("Scheduled actuator evaluation failed")
             self._pump_scheduler_stop.wait(1)
 
     def _publish_scheduled_pumps(self, now: Optional[float] = None) -> None:
@@ -255,7 +265,35 @@ class TerrariumMQTTService:
         self._last_scheduled_pump_outputs.update(outputs)
         if changed:
             self._publish("moxa/cmd/output", changed)
-        self._refresh_dashboard_status(now=now)
+
+    def _publish_timed_climate_outputs(self, now: Optional[datetime] = None) -> None:
+        current = now or datetime.now()
+        snapshot = self.status.snapshot()
+        moxa_online = snapshot.get("moxa", {}).get("status") == "online"
+        esp32 = snapshot.get("esp32", {})
+        sensor_seen = esp32.get("last_sensor_seen")
+        sensor_fresh = (
+            isinstance(sensor_seen, (int, float))
+            and time.time() - sensor_seen <= self.controller.logic.sensor_stale_timeout_seconds
+        )
+        if moxa_online and sensor_fresh:
+            climate_outputs = self.controller.logic.evaluate_moxa_outputs(
+                now=current,
+                allow_random_rain=False,
+            )
+            outputs = {key: climate_outputs[key] for key in ("do4", "do5")}
+        else:
+            outputs = {"do4": "OFF", "do5": "OFF"}
+
+        changed = {
+            key: value
+            for key, value in outputs.items()
+            if self._last_timed_climate_outputs.get(key) != value
+        }
+        self._last_timed_climate_outputs.update(outputs)
+        if changed:
+            self._publish("moxa/cmd/output", changed)
+        self._refresh_dashboard_status(now=current.timestamp())
 
     def _refresh_dashboard_status(self, now: Optional[float] = None) -> None:
         now_seconds = time.time() if now is None else now

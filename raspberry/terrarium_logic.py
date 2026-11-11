@@ -210,6 +210,7 @@ class TerrariumLogic:
         self,
         now: Optional[datetime] = None,
         random_value: Optional[float] = None,
+        allow_random_rain: bool = True,
     ) -> Dict[str, object]:
         """Evaluate timed rain/mist outputs and independent Moxa interlocks."""
         current = now or datetime.now()
@@ -259,6 +260,7 @@ class TerrariumLogic:
             humidity=humidity,
             minimum_humidity=float(climate["humidity_min"]),
             scheduled_event=self._scheduled_rain_event(current, climate),
+            allow_random_trigger=allow_random_rain,
         )
         mistmaker = event["do5"]
         humidity_target = float(climate["humidity_target"])
@@ -374,6 +376,7 @@ class TerrariumLogic:
         humidity: Optional[float] = None,
         minimum_humidity: Optional[float] = None,
         scheduled_event: Optional[str] = None,
+        allow_random_trigger: bool = True,
     ) -> Dict[str, object]:
         """Run a humidity-gated rain event and planned-rain mist follow-up."""
         current_time = time.time() if now is None else now
@@ -417,6 +420,8 @@ class TerrariumLogic:
             if scheduled_event in self.scheduled_rain_events:
                 return {**inactive, "reason": "scheduled_event_complete"}
         else:
+            if not allow_random_trigger:
+                return {**inactive, "reason": "random_trigger_deferred"}
             chance = float(self.rainstorm.get("chance_percent", 0.0)) / 100.0
             if (self.random_source() if random_value is None else random_value) >= chance:
                 return inactive
