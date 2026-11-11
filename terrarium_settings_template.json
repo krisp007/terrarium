@@ -214,7 +214,7 @@
     "enabled": true,
     "auto_mode": true,
     "cycle_minutes": 90,
-    "duration_seconds": 45
+    "duration_seconds": 180
   },
   "safety": {
     "leak_detected": "shutdown_mist_and_irrigation",
