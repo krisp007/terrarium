@@ -132,6 +132,9 @@ article{min-width:0;min-height:300px;padding:24px;background:#1c3029;border:1px 
 article.humidity{background:#203039;border-color:#405764}
 article.water{background:#28372b;border-color:#53684e}
 h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
+.metric-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.metric-target{flex:none;text-align:right;color:#9eafa5;font:12px Arial,sans-serif}
+.metric-target strong{display:block;margin-top:3px;color:#d4ddd7;font-size:14px}
 .value{font:400 72px Georgia,serif;line-height:1;white-space:nowrap;color:#f2cd73}
 .humidity .value{color:#78d5ce}
 .water .value{color:#a7d879}
@@ -178,12 +181,12 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 <body>
 <main>
 <header><div><div class="eyebrow">Terrarium climate</div><h1>Live readings</h1></div><div id="sensor-state" role="status" aria-live="polite">Waiting for sensor data</div></header>
-<div class="climate-strip"><div class="climate-chip">Season<strong id="season-status">--</strong></div><div class="climate-chip">Period<strong id="period-status">--</strong></div><div class="climate-chip">Targets<strong id="climate-targets">--</strong></div></div>
+<div class="climate-strip"><div class="climate-chip">Season<strong id="season-status">--</strong></div><div class="climate-chip">Period<strong id="period-status">--</strong></div><div class="climate-chip">Targets<strong id="climate-targets">--</strong></div><div class="climate-chip">Heat lamp<strong id="heat-lamp-status">--</strong><span id="heat-lamp-feedback">Feedback --</span></div></div>
 <div id="alarm-bar" class="alarm-bar warning" role="status" aria-live="assertive">Checking alarm status...</div>
 <div class="readings">
-<article><h2>Air temperature</h2><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="temperature-left">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="temperature-middle">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="temperature-right">--</span><span class="sensor-unit">&#176;C</span></div></div></article>
-<article class="water"><h2>Aquarium temperature</h2><div class="value"><span id="aquarium-temperature">--</span><span class="unit">&#176;C</span></div></article>
-<article class="humidity"><h2>Humidity</h2><div class="value"><span id="humidity">--</span><span class="unit">%</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="humidity-left">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="humidity-middle">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="humidity-right">--</span><span class="sensor-unit">%</span></div></div></article>
+<article><div class="metric-heading"><h2>Air temperature</h2><div class="metric-target">Target<strong id="temperature-target">--</strong></div></div><div class="value"><span id="temperature">--</span><span class="unit">&#176;C</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="temperature-left">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="temperature-middle">--</span><span class="sensor-unit">&#176;C</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="temperature-right">--</span><span class="sensor-unit">&#176;C</span></div></div></article>
+<article class="water"><div class="metric-heading"><h2>Aquarium temperature</h2><div class="metric-target">Target<strong id="aquarium-temperature-target">--</strong></div></div><div class="value"><span id="aquarium-temperature">--</span><span class="unit">&#176;C</span></div></article>
+<article class="humidity"><div class="metric-heading"><h2>Humidity</h2><div class="metric-target">Target<strong id="humidity-target">--</strong></div></div><div class="value"><span id="humidity">--</span><span class="unit">%</span></div><div class="sensor-breakdown"><div><span class="sensor-label">L</span><span class="sensor-value" id="humidity-left">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">M</span><span class="sensor-value" id="humidity-middle">--</span><span class="sensor-unit">%</span></div><div><span class="sensor-label">R</span><span class="sensor-value" id="humidity-right">--</span><span class="sensor-unit">%</span></div></div></article>
 </div>
 <section class="ventilation" aria-labelledby="ventilation-title">
 <div class="ventilation-header"><h2 id="ventilation-title">Ventilation</h2><div id="fan-state" role="status" aria-live="polite">Waiting for fan command</div></div>
@@ -212,6 +215,9 @@ h2{font:600 16px Arial,sans-serif;margin:0;color:#c2d0c8}
 const temperature=document.querySelector('#temperature');
 const humidity=document.querySelector('#humidity');
 const aquariumTemperature=document.querySelector('#aquarium-temperature');
+const temperatureTarget=document.querySelector('#temperature-target');
+const humidityTarget=document.querySelector('#humidity-target');
+const aquariumTemperatureTarget=document.querySelector('#aquarium-temperature-target');
 const sensorState=document.querySelector('#sensor-state');
 const fanState=document.querySelector('#fan-state');
 const fanSequence=document.querySelector('#fan-sequence');
@@ -222,6 +228,8 @@ const seasonStatus=document.querySelector('#season-status');
 const periodStatus=document.querySelector('#period-status');
 const climateTargets=document.querySelector('#climate-targets');
 const alarmBar=document.querySelector('#alarm-bar');
+const heatLampStatus=document.querySelector('#heat-lamp-status');
+const heatLampFeedback=document.querySelector('#heat-lamp-feedback');
 const fanChannels=Array.from({length:6},(_,index)=>({
  element:document.querySelector(`#fan-${index+1}`),
  level:document.querySelector(`#fan-${index+1}-level`)
@@ -243,6 +251,7 @@ function averageReading(sensors,prefix){
  return readings.length?readings.reduce((sum,value)=>sum+value,0)/readings.length:null;
 }
 function showReading(element,value){element.textContent=value===null?'--':value.toFixed(1);}
+function showTarget(element,value,unit){element.textContent=typeof value==='number'&&Number.isFinite(value)?`${value.toFixed(1)} ${unit}`:'--';}
 function showFanStatus(commands,esp32){
  const command=commands?.['esp32/cmd/fans'];
  if(!command){fanState.textContent='Fan command unavailable';fanSequence.textContent='Minimum airflow sequence unavailable';fanFeedback.textContent='ESP32 PWM acknowledgement unavailable; physical fan RPM is not measured.';return;}
@@ -294,6 +303,12 @@ function showOperationalStatus(status){
 
  const commands=status.commands?.['moxa/cmd/output']||{};
  const feedback=status.moxa?.outputs||{};
+ const heatCommand=commands.do6;
+ const heatOutput=feedback['DO@DO-06'];
+ heatLampStatus.textContent=heatCommand==='ON'?'ON requested':heatCommand==='OFF'?'OFF requested':'No command';
+ heatLampFeedback.textContent=heatOutput===0||heatOutput===1||typeof heatOutput==='boolean'
+  ?`Feedback ${Boolean(heatOutput)?'ON':'OFF'}`
+  :'Feedback unavailable';
  const rows=[4,5,10,11,12,15];
  for(const output of rows){
     const channel=`DO@DO-${String(output).padStart(2,'0')}`;
@@ -324,6 +339,10 @@ async function refresh(){
   const response=await fetch('/api/status',{cache:'no-store'});
   if(!response.ok)throw new Error('Status request failed');
   const status=await response.json();
+    const climate=status.climate||{};
+    showTarget(temperatureTarget,climate.temperature_target,'°C');
+    showTarget(humidityTarget,climate.humidity_target,'%');
+    showTarget(aquariumTemperatureTarget,climate.aquarium_temperature_target,'°C');
     showOperationalStatus(status);
     showFanStatus(status.commands,status.esp32);
     showLightingStatus(status.commands);
@@ -342,6 +361,9 @@ async function refresh(){
   sensorState.classList.toggle('offline',!hasReadings||stale);
   sensorState.textContent=!hasReadings?'Waiting for sensor data':stale?'Sensor data is stale':'Updated '+new Date(lastSeen*1000).toLocaleTimeString();
  }catch{
+    showTarget(temperatureTarget,null,'°C');
+    showTarget(humidityTarget,null,'%');
+    showTarget(aquariumTemperatureTarget,null,'°C');
     alarmBar.className='alarm-bar critical';
     alarmBar.textContent='Pi status unavailable';
     showFanStatus(null,null);

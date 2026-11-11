@@ -265,16 +265,17 @@ class TerrariumMQTTService:
         snapshot = self.status.snapshot()
         moxa = snapshot.get("moxa", {})
         esp32 = snapshot.get("esp32", {})
-        last_seen = esp32.get("last_seen")
-        heartbeat_timed_out = False
+        last_status_seen = esp32.get("last_status_seen")
+        heartbeat_timed_out = (
+            not isinstance(last_status_seen, (int, float))
+            or now_seconds - last_status_seen > logic.heartbeat_timeout_seconds
+        )
         if (
             esp32.get("status") == "online"
-            and isinstance(last_seen, (int, float))
-            and now_seconds - last_seen > logic.heartbeat_timeout_seconds
+            and heartbeat_timed_out
         ):
             self.status.update("esp32", {"status": "offline"})
             esp32["status"] = "offline"
-            heartbeat_timed_out = True
         moxa_online = moxa.get("status") == "online"
         pump_schedule = logic.scheduled_pump_status(moxa_online=moxa_online)
         for output, schedule in (("do10", "DO@DO-10"), ("do11", "DO@DO-11")):
@@ -288,7 +289,7 @@ class TerrariumMQTTService:
             messages.append("MQTT disconnected")
         if esp32.get("status") != "online":
             messages.append("ESP32 heartbeat timeout" if heartbeat_timed_out else "ESP32 offline")
-        sensor_seen = esp32.get("last_sensor_seen", last_seen)
+        sensor_seen = esp32.get("last_sensor_seen", last_status_seen)
         if not isinstance(sensor_seen, (int, float)) or now_seconds - sensor_seen > logic.sensor_stale_timeout_seconds:
             messages.append("ESP32 sensor data stale")
         if not moxa_online:
@@ -307,6 +308,7 @@ class TerrariumMQTTService:
             "season": targets["season"],
             "period": targets["period"],
             "temperature_target": targets["temperature_target"],
+            "aquarium_temperature_target": targets["aquarium_temperature_target"],
             "humidity_min": targets["humidity_min"],
             "humidity_target": targets["humidity_target"],
             "sensor_stale_timeout_seconds": logic.sensor_stale_timeout_seconds,

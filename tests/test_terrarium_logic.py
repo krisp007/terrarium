@@ -592,6 +592,13 @@ class TerrariumLogicTests(unittest.TestCase):
         self.assertEqual(logic.sensor_stale_timeout_seconds, 360)
         self.assertEqual(logic.heartbeat_timeout_seconds, 960)
 
+    def test_aquarium_temperature_target_loads_from_settings(self):
+        logic = TerrariumLogic({"aquarium": {"temperature_target_c": 25.0}})
+
+        targets = logic._active_climate_targets(datetime(2026, 9, 18, 12, 0))
+
+        self.assertEqual(targets["aquarium_temperature_target"], 25.0)
+
     def test_startup_state_uses_current_time_and_safe_outputs(self):
         controller = TerrariumMQTTController(broker="example.local")
         published = []
@@ -898,9 +905,10 @@ class TerrariumLogicTests(unittest.TestCase):
         service._on_connect(client, None, {}, 0)
         dashboard = service.status.snapshot()
         self.assertEqual(dashboard["climate"]["season"], "rainy")
+        self.assertEqual(dashboard["climate"]["aquarium_temperature_target"], 25.0)
         self.assertEqual(dashboard["pump_schedule"]["do11"]["cycle_minutes"], 90)
         self.assertEqual(dashboard["pump_schedule"]["do11"]["duration_seconds"], 45)
-        self.assertIn("ESP32 offline", dashboard["alarms"]["messages"])
+        self.assertIn("ESP32 heartbeat timeout", dashboard["alarms"]["messages"])
         scheduler = service._pump_scheduler_thread
         service.stop()
 
@@ -938,6 +946,28 @@ class TerrariumLogicTests(unittest.TestCase):
         offline_status = service.status.snapshot()
         self.assertEqual(offline_status["esp32"]["status"], "offline")
         self.assertIn("ESP32 heartbeat timeout", offline_status["alarms"]["messages"])
+
+    def test_fresh_sensors_do_not_mask_stale_status_heartbeat(self):
+        service = TerrariumMQTTService(
+            "example.local",
+            settings={"safety": {"no_heartbeat_timeout_sec": 960}},
+            client_factory=lambda: type("FakeClient", (), {"publish": lambda *_args: None, "disconnect": lambda *_args: None})(),
+        )
+        service.status.update("mqtt", {"status": "connected"})
+        service.status.update("moxa", {"status": "online"})
+        service.status.update("esp32", {
+            "status": "online",
+            "last_seen": 2000,
+            "last_sensor_seen": 2000,
+            "last_status_seen": 1000,
+            "sensors": {"temperature_top": 24.0},
+        })
+
+        service._refresh_dashboard_status(now=2001)
+
+        snapshot = service.status.snapshot()
+        self.assertEqual(snapshot["esp32"]["status"], "offline")
+        self.assertIn("ESP32 heartbeat timeout", snapshot["alarms"]["messages"])
 
     def test_status_store_returns_copy_of_system_status(self):
         import tempfile

@@ -156,6 +156,9 @@ class TerrariumLogic:
             temperature = {}
         if not isinstance(humidity, dict):
             humidity = {}
+        aquarium = self.settings.get("aquarium", {})
+        if not isinstance(aquarium, dict):
+            aquarium = {}
 
         return {
             "season": season_name,
@@ -168,6 +171,7 @@ class TerrariumLogic:
             "humidity_min": float(humidity.get("min_percent", self.mistmaker_on_humidity)),
             "humidity_max": float(humidity.get("max_percent", self.mistmaker_off_humidity)),
             "humidity_target": float(humidity.get("target_percent", self.mistmaker_off_humidity)),
+            "aquarium_temperature_target": float(aquarium.get("temperature_target_c", 25.0)),
         }
     def update_sensor_state(self, payload: Dict[str, object]) -> Dict[str, object]:
         """Store the latest sensor measurements."""
